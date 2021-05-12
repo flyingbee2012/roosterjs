@@ -26,6 +26,7 @@ export {
     PendableFormatCommandMap,
     PendableFormatNames,
 } from './utils/getPendableFormatState';
+export { default as getDarkColor } from './utils/getDarkColor';
 export { default as getTagOfNode } from './utils/getTagOfNode';
 export { default as isBlockElement } from './utils/isBlockElement';
 export { default as isNodeEmpty } from './utils/isNodeEmpty';

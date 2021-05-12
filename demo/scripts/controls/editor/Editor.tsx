@@ -1,6 +1,5 @@
 import * as React from 'react';
 import BuildInPluginState, { UrlPlaceholder } from '../BuildInPluginState';
-import fixColor from './fixColor';
 import ResetListPlugin from '../contextMenu/ResetListPlugin';
 import RotateImagePlugin from '../contextMenu/RotateImagePlugin';
 import SampleColorPickerPluginDataProvider from '../samplepicker/SampleColorPickerPluginDataProvider';
@@ -116,7 +115,6 @@ export default class Editor extends React.Component<EditorProps, BuildInPluginSt
             experimentalFeatures: this.state.experimentalFeatures,
             undoSnapshotService: this.props.snapshotService,
             inDarkMode: this.props.isDark,
-            onExternalContentTransform: fixColor,
         };
         this.editor = new RoosterJsEditor(this.contentDiv, options);
     }
