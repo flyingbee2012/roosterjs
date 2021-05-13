@@ -19,9 +19,6 @@ const POPOUT_TARGET = '_blank';
 class MainPane extends MainPaneBase {
     private mouseX: number;
     private popoutRoot: HTMLElement;
-    private content: string = null;
-    private editor = React.createRef<Editor>();
-    private popoutMainPane = React.createRef<PopoutMainPane>();
 
     constructor(props: {}) {
         super(props);
@@ -30,7 +27,7 @@ class MainPane extends MainPaneBase {
             showSidePane: window.location.hash != '',
             showRibbon: true,
             isPopoutShown: false,
-            isDark: false,
+            initState: getPlugins().editorOptions.getBuildInPluginState(),
         };
     }
 
@@ -59,11 +56,8 @@ class MainPane extends MainPaneBase {
                             <Editor
                                 plugins={getAllPluginArray(this.state.showSidePane)}
                                 className={styles.editor}
-                                ref={this.editor}
-                                initState={plugins.editorOptions.getBuildInPluginState()}
-                                content={this.content}
+                                initState={this.state.initState}
                                 snapshotService={plugins.snapshot.getSnapshotService()}
-                                isDark={this.state.isDark}
                             />
 
                             {this.state.showSidePane ? (
@@ -98,7 +92,9 @@ class MainPane extends MainPaneBase {
     }
 
     resetEditorPlugin(pluginState: BuildInPluginState) {
-        this.editor.current.resetEditorPlugin(pluginState);
+        this.setState({
+            initState: pluginState,
+        });
     }
 
     updateFormatState() {
@@ -115,7 +111,6 @@ class MainPane extends MainPaneBase {
         const win = window.open(POPOUT_URL, POPOUT_TARGET, POPOUT_FEATURES);
         win.document.write(POPOUT_HTML);
         win.addEventListener('unload', () => {
-            this.content = this.popoutMainPane.current.getContent();
             if (this.popoutRoot) {
                 ReactDom.unmountComponentAtNode(this.popoutRoot);
             }
@@ -136,8 +131,6 @@ class MainPane extends MainPaneBase {
             win.document.head.appendChild(newStyle);
         }
 
-        this.content = this.editor.current.getContent();
-
         this.setState({
             isPopoutShown: true,
         });
@@ -145,17 +138,8 @@ class MainPane extends MainPaneBase {
         this.popoutRoot = win.document.getElementById(PopoutRoot);
 
         window.setTimeout(() => {
-            ReactDom.render(
-                <PopoutMainPane ref={this.popoutMainPane} content={this.content} />,
-                this.popoutRoot
-            );
+            ReactDom.render(<PopoutMainPane />, this.popoutRoot);
         }, 0);
-    }
-
-    setDark(isDark: boolean) {
-        this.setState({
-            isDark: isDark,
-        });
     }
 
     private onMouseDown = (e: React.MouseEvent<EventTarget>) => {

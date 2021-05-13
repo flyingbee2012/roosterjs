@@ -1,4 +1,4 @@
-import { Browser, getComputedStyles } from 'roosterjs-editor-dom';
+import { Browser, getComputedStyles, getDarkColor } from 'roosterjs-editor-dom';
 import {
     DefaultFormat,
     DocumentCommand,
@@ -47,6 +47,8 @@ const DARK_MODE_DEFAULT_FORMAT = {
     },
 };
 
+const DARK_MODE_BACK_COLOR = '#333333';
+
 /**
  * @internal
  * Lifecycle plugin handles editor initialization and disposing
@@ -58,6 +60,7 @@ export default class LifecyclePlugin implements PluginWithState<LifecyclePluginS
     private contentDivFormat: string[];
     private initializer: () => void;
     private disposer: () => void;
+    private darkModeAdjuster: () => void;
 
     /**
      * Construct a new instance of LifecyclePlugin
@@ -79,6 +82,10 @@ export default class LifecyclePlugin implements PluginWithState<LifecyclePluginS
                 contentDiv.removeAttribute(CONTENT_EDITABLE_ATTRIBUTE_NAME);
             };
         }
+        this.darkModeAdjuster = () => {
+            contentDiv.style.color = this.state.isDarkMode ? getDarkColor('black') : null;
+            contentDiv.style.backgroundColor = this.state.isDarkMode ? DARK_MODE_BACK_COLOR : null;
+        };
 
         this.state = {
             customData: {},
@@ -113,6 +120,9 @@ export default class LifecyclePlugin implements PluginWithState<LifecyclePluginS
 
         // Set content DIV to be editable
         this.initializer?.();
+
+        // Set editor background color for dark mode
+        this.darkModeAdjuster();
 
         // Do proper change for browsers to disable some browser-specified behaviors.
         this.adjustBrowserBehavior();
@@ -165,6 +175,7 @@ export default class LifecyclePlugin implements PluginWithState<LifecyclePluginS
         ) {
             this.state.isDarkMode = event.source == ChangeSource.SwitchToDarkMode;
             this.recalculateDefaultFormat();
+            this.darkModeAdjuster();
         }
     }
 

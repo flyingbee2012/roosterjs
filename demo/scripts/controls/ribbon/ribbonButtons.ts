@@ -305,11 +305,8 @@ const buttons: { [key: string]: RibbonButtonType } = {
         onClick: editor => {
             const isDark = !editor.isDarkMode();
             editor.setDarkModeState(isDark);
-            MainPaneBase.getInstance().setDark(isDark);
         },
         checked: (format, editor) => editor.isDarkMode(),
-        isDisabled: editor =>
-            !(Browser.isChrome || Browser.isFirefox) || editor.getDocument().defaultView != window,
     },
     paste: {
         title: 'Paste Again',
