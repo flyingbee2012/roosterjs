@@ -1,10 +1,4 @@
-import {
-    arrayPush,
-    getComputedStyles,
-    getDarkColor,
-    safeInstanceOf,
-    toArray,
-} from 'roosterjs-editor-dom';
+import { arrayPush, getComputedStyles, safeInstanceOf, toArray } from 'roosterjs-editor-dom';
 import {
     ColorTransformDirection,
     DarkModeDatasetNames,
@@ -50,6 +44,59 @@ export const transformColor: TransformColor = (
     callback: () => void,
     direction: ColorTransformDirection
 ) => {
+    function transformToLightMode(element: HTMLElement) {
+        ColorAttributeName.forEach(names => {
+            // Reset color styles based on the content of the ogsc/ogsb data element.
+            // If those data properties are empty or do not exist, set them anyway to clear the content.
+            element.style.setProperty(
+                names[ColorAttributeEnum.CssColor],
+                getValueOrDefault(element.dataset[names[ColorAttributeEnum.CssDataSet]], '')
+            );
+            delete element.dataset[names[ColorAttributeEnum.CssDataSet]];
+
+            // Some elements might have set attribute colors. We need to reset these as well.
+            const value = element.dataset[names[ColorAttributeEnum.HtmlDataSet]];
+
+            if (getValueOrDefault(value, null)) {
+                element.setAttribute(names[ColorAttributeEnum.HtmlColor], value);
+            } else {
+                element.removeAttribute(names[ColorAttributeEnum.HtmlColor]);
+            }
+
+            delete element.dataset[names[ColorAttributeEnum.HtmlDataSet]];
+        });
+    }
+
+    function transformToDarkMode(element: HTMLElement) {
+        const computedValues = getComputedStyles(element, ['color', 'background-color']);
+
+        ColorAttributeName.forEach((names, index) => {
+            const styleColor = element.style.getPropertyValue(names[ColorAttributeEnum.CssColor]);
+            const attrColor = element.getAttribute(names[ColorAttributeEnum.HtmlColor]);
+
+            if (
+                !element.dataset[names[ColorAttributeEnum.CssDataSet]] &&
+                !element.dataset[names[ColorAttributeEnum.HtmlDataSet]] &&
+                (styleColor || attrColor)
+            ) {
+                const newColor = core.lifecycle.getDarkColor(
+                    computedValues[index] || styleColor || attrColor
+                );
+                element.style.setProperty(
+                    names[ColorAttributeEnum.CssColor],
+                    newColor,
+                    'important'
+                );
+                element.dataset[names[ColorAttributeEnum.CssDataSet]] = styleColor || '';
+
+                if (attrColor) {
+                    element.setAttribute(names[ColorAttributeEnum.HtmlColor], newColor);
+                    element.dataset[names[ColorAttributeEnum.HtmlDataSet]] = attrColor;
+                }
+            }
+        });
+    }
+
     const elementsToTransform = core.lifecycle.isDarkMode ? getAll(rootNode, includeSelf) : [];
     const transformFunction =
         direction == ColorTransformDirection.DarkToLight
@@ -62,53 +109,6 @@ export const transformColor: TransformColor = (
         element => element?.dataset && element.style && transformFunction(element)
     );
 };
-
-function transformToLightMode(element: HTMLElement) {
-    ColorAttributeName.forEach(names => {
-        // Reset color styles based on the content of the ogsc/ogsb data element.
-        // If those data properties are empty or do not exist, set them anyway to clear the content.
-        element.style.setProperty(
-            names[ColorAttributeEnum.CssColor],
-            getValueOrDefault(element.dataset[names[ColorAttributeEnum.CssDataSet]], '')
-        );
-        delete element.dataset[names[ColorAttributeEnum.CssDataSet]];
-
-        // Some elements might have set attribute colors. We need to reset these as well.
-        const value = element.dataset[names[ColorAttributeEnum.HtmlDataSet]];
-
-        if (getValueOrDefault(value, null)) {
-            element.setAttribute(names[ColorAttributeEnum.HtmlColor], value);
-        } else {
-            element.removeAttribute(names[ColorAttributeEnum.HtmlColor]);
-        }
-
-        delete element.dataset[names[ColorAttributeEnum.HtmlDataSet]];
-    });
-}
-
-function transformToDarkMode(element: HTMLElement) {
-    const computedValues = getComputedStyles(element, ['color', 'background-color']);
-
-    ColorAttributeName.forEach((names, index) => {
-        const styleColor = element.style.getPropertyValue(names[ColorAttributeEnum.CssColor]);
-        const attrColor = element.getAttribute(names[ColorAttributeEnum.HtmlColor]);
-
-        if (
-            !element.dataset[names[ColorAttributeEnum.CssDataSet]] &&
-            !element.dataset[names[ColorAttributeEnum.HtmlDataSet]] &&
-            (styleColor || attrColor)
-        ) {
-            const newColor = getDarkColor(computedValues[index] || styleColor || attrColor);
-            element.style.setProperty(names[ColorAttributeEnum.CssColor], newColor, 'important');
-            element.dataset[names[ColorAttributeEnum.CssDataSet]] = styleColor || '';
-
-            if (attrColor) {
-                element.setAttribute(names[ColorAttributeEnum.HtmlColor], newColor);
-                element.dataset[names[ColorAttributeEnum.HtmlDataSet]] = attrColor;
-            }
-        }
-    });
-}
 
 function getValueOrDefault(value: string, defualtValue: string | null) {
     return value && value != 'undefined' && value != 'null' ? value : defualtValue;

@@ -1,6 +1,5 @@
 import applyInlineStyle from '../utils/applyInlineStyle';
 import { DarkModeDatasetNames, IEditor, ModeIndependentColor } from 'roosterjs-editor-types';
-import { getDarkColor } from 'roosterjs-editor-dom';
 
 /**
  * @internal
@@ -11,13 +10,7 @@ export default function setColor(
     isBackColor: boolean
 ) {
     const modeIndependentColor: ModeIndependentColor =
-        typeof color === 'string'
-            ? {
-                  lightModeColor: color,
-                  darkModeColor: getDarkColor(color),
-              }
-            : color;
-
+        typeof color === 'string' ? editor.getModeIndependentColor(color) : color;
     const darkMode = editor.isDarkMode();
     const appliedColor = darkMode
         ? modeIndependentColor.darkModeColor

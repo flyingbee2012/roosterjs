@@ -23,6 +23,7 @@ import {
     IEditor,
     InsertOption,
     IPositionContentSearcher,
+    ModeIndependentColor,
     NodePosition,
     PluginEvent,
     PluginEventData,
@@ -744,6 +745,17 @@ export default class Editor implements IEditor {
      */
     public isDarkMode(): boolean {
         return this.core.lifecycle.isDarkMode;
+    }
+
+    /**
+     * Calculate Mode Independent Color from a light mode color
+     * @param lightColor The light mode color to calculate from
+     */
+    getModeIndependentColor(lightColor: string): ModeIndependentColor {
+        return {
+            lightModeColor: lightColor,
+            darkModeColor: this.core.lifecycle.getDarkColor(lightColor),
+        };
     }
 
     /**

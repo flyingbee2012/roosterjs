@@ -1,4 +1,4 @@
-import { Browser, getComputedStyles, getDarkColor } from 'roosterjs-editor-dom';
+import { Browser, getComputedStyles } from 'roosterjs-editor-dom';
 import {
     DefaultFormat,
     DocumentCommand,
@@ -83,7 +83,9 @@ export default class LifecyclePlugin implements PluginWithState<LifecyclePluginS
             };
         }
         this.darkModeAdjuster = () => {
-            contentDiv.style.color = this.state.isDarkMode ? getDarkColor('black') : null;
+            contentDiv.style.color = this.state.isDarkMode
+                ? this.state.getDarkColor('black')
+                : null;
             contentDiv.style.backgroundColor = this.state.isDarkMode ? DARK_MODE_BACK_COLOR : null;
         };
 
@@ -91,6 +93,7 @@ export default class LifecyclePlugin implements PluginWithState<LifecyclePluginS
             customData: {},
             defaultFormat: options.defaultFormat || null,
             isDarkMode: !!options.inDarkMode,
+            getDarkColor: options.getDarkColor || ((color: string) => color),
             onExternalContentTransform: options.onExternalContentTransform,
             experimentalFeatures: options.experimentalFeatures || [],
             shadowEditFragment: null,

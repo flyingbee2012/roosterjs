@@ -11,6 +11,7 @@ import { CutPasteListChain } from 'roosterjs-editor-plugins/lib/CutPasteListChai
 import { Editor as RoosterJsEditor } from 'roosterjs-editor-core';
 import { EditorInstanceToggleablePlugins } from './EditorInstanceToggleablePlugins';
 import { EditorOptions, EditorPlugin, IEditor, UndoSnapshotsService } from 'roosterjs-editor-types';
+import { getDarkColor } from 'roosterjs-color-utils';
 import { HyperLink } from 'roosterjs-editor-plugins/lib/HyperLink';
 import { ImageResize } from 'roosterjs-editor-plugins/lib/ImageResize';
 import { Paste } from 'roosterjs-editor-plugins/lib/Paste';
@@ -95,6 +96,7 @@ export default function Editor(props: EditorProps) {
         const options: EditorOptions = {
             plugins,
             defaultFormat,
+            getDarkColor,
             experimentalFeatures: experimentalFeatures,
             undoSnapshotService: props.snapshotService,
         };
