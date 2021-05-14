@@ -5,6 +5,7 @@ import renderTableOptions from './renderTableOptions';
 import RibbonButtonType from './RibbonButtonType';
 import { Alignment, Direction, Indentation } from 'roosterjs-editor-types';
 import { Browser } from 'roosterjs-editor-dom';
+import { getDarkColor } from 'roosterjs-color-utils';
 import {
     setFontName,
     setFontSize,
@@ -79,7 +80,11 @@ const buttons: { [key: string]: RibbonButtonType } = {
     textColor: {
         title: 'Text color',
         image: require('../svg/textcolor.svg'),
-        onClick: setTextColor,
+        onClick: (editor, color) =>
+            setTextColor(editor, {
+                lightModeColor: color,
+                darkModeColor: getDarkColor(color),
+            }),
         dropDownItems: {
             '#51a7f9': 'Light Blue',
             '#6fc040': 'Light Green',
@@ -116,7 +121,11 @@ const buttons: { [key: string]: RibbonButtonType } = {
     backColor: {
         title: 'Highlight',
         image: require('../svg/backcolor.svg'),
-        onClick: setBackgroundColor,
+        onClick: (editor, color) =>
+            setBackgroundColor(editor, {
+                lightModeColor: color,
+                darkModeColor: getDarkColor(color),
+            }),
         dropDownItems: {
             '#00ffff': 'Cyan',
             '#00ff00': 'Green',

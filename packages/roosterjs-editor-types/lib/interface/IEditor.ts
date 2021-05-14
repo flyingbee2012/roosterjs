@@ -3,7 +3,6 @@ import ClipboardData from './ClipboardData';
 import DefaultFormat from './DefaultFormat';
 import IContentTraverser from './IContentTraverser';
 import IPositionContentSearcher from './IPositionContentSearcher';
-import ModeIndependentColor from './ModeIndependentColor';
 import NodePosition from './NodePosition';
 import Region from './Region';
 import SelectionPath from './SelectionPath';
@@ -512,12 +511,6 @@ export default interface IEditor {
      * @returns True if the editor is in dark mode, otherwise false
      */
     isDarkMode(): boolean;
-
-    /**
-     * Calculate Mode Independent Color from a light mode color
-     * @param lightColor The light mode color to calculate from
-     */
-    getModeIndependentColor(lightColor: string): ModeIndependentColor;
 
     /**
      * Make the editor in "Shadow Edit" mode.
