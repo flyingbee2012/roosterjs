@@ -83,9 +83,7 @@ export default class LifecyclePlugin implements PluginWithState<LifecyclePluginS
             };
         }
         this.darkModeAdjuster = () => {
-            contentDiv.style.color = this.state.isDarkMode
-                ? this.state.getDarkColor('black')
-                : null;
+            contentDiv.style.color = this.state.isDarkMode ? 'white' : null;
             contentDiv.style.backgroundColor = this.state.isDarkMode ? DARK_MODE_BACK_COLOR : null;
         };
 
