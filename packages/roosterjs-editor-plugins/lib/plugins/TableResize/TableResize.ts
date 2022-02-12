@@ -40,7 +40,7 @@ export default class TableResize implements EditorPlugin {
     }
 
     /**
-     * Handle events triggered from editor
+     * Handle events triggered from the editor
      * @param event PluginEvent object
      */
     onPluginEvent(e: PluginEvent) {
