@@ -1,4 +1,8 @@
 import {
+    inlineEntityOnPluginEvent,
+    normalizeDelimitersInEditor,
+} from './utils/inlineEntityOnPluginEvent';
+import {
     Browser,
     commitEntity,
     getEntityFromElement,
@@ -9,7 +13,8 @@ import {
     createElement,
     addRangeToSelection,
     createRange,
-    moveChildNodes,
+    isBlockElement,
+    getObjectKeys,
 } from 'roosterjs-editor-dom';
 import {
     ChangeSource,
@@ -20,6 +25,8 @@ import {
     EntityOperation,
     EntityOperationEvent,
     EntityPluginState,
+    KnownEntityItem,
+    ExperimentalFeatures,
     HtmlSanitizerOptions,
     IEditor,
     Keys,
@@ -29,6 +36,7 @@ import {
     PluginWithState,
     QueryScope,
 } from 'roosterjs-editor-types';
+import type { CompatibleEntityOperation } from 'roosterjs-editor-types/lib/compatibleTypes';
 
 const ENTITY_ID_REGEX = /_(\d{1,8})$/;
 
@@ -42,7 +50,7 @@ const ALLOWED_CSS_CLASSES = [
     ENTITY_TYPE_CSS_REGEX,
     ENTITY_READONLY_CSS_REGEX,
 ];
-const REMOVE_ENTITY_OPERATIONS = [
+const REMOVE_ENTITY_OPERATIONS: (EntityOperation | CompatibleEntityOperation)[] = [
     EntityOperation.Overwrite,
     EntityOperation.PartialOverwrite,
     EntityOperation.RemoveFromStart,
@@ -54,17 +62,16 @@ const REMOVE_ENTITY_OPERATIONS = [
  * Entity Plugin helps handle all operations related to an entity and generate entity specified events
  */
 export default class EntityPlugin implements PluginWithState<EntityPluginState> {
-    private editor: IEditor;
+    private editor: IEditor | null = null;
     private state: EntityPluginState;
-    private cancelAsyncRun: () => void;
+    private cancelAsyncRun: (() => void) | null = null;
 
     /**
      * Construct a new instance of EntityPlugin
      */
     constructor() {
         this.state = {
-            knownEntityElements: [],
-            shadowEntityCache: {},
+            entityMap: {},
         };
     }
 
@@ -84,26 +91,11 @@ export default class EntityPlugin implements PluginWithState<EntityPluginState> 
     }
 
     /**
-     * Check if the plugin should handle the given event exclusively.
-     * Handle an event exclusively means other plugin will not receive this event in
-     * onPluginEvent method.
-     * If two plugins will return true in willHandleEventExclusively() for the same event,
-     * the final result depends on the order of the plugins are added into editor
-     * @param event The event to check
-     */
-    willHandleEventExclusively(event: PluginEvent) {
-        return (
-            event.eventType == PluginEventType.KeyPress &&
-            !!(event.rawEvent.target as HTMLElement)?.shadowRoot
-        );
-    }
-
-    /**
      * Dispose this plugin
      */
     dispose() {
         this.editor = null;
-        this.state.knownEntityElements = [];
+        this.state.entityMap = {};
     }
 
     /**
@@ -145,18 +137,19 @@ export default class EntityPlugin implements PluginWithState<EntityPluginState> 
             case PluginEventType.ContextMenu:
                 this.handleContextMenuEvent(event.rawEvent);
                 break;
-            case PluginEventType.BeforeSetContent:
-                this.handleBeforeSetContentEvent();
-                break;
             case PluginEventType.EntityOperation:
                 this.handleEntityOperationEvent(event);
                 break;
+        }
+
+        if (this.editor?.isFeatureEnabled(ExperimentalFeatures.InlineEntityReadOnlyDelimiters)) {
+            inlineEntityOnPluginEvent(event, this.editor);
         }
     }
 
     private handleContextMenuEvent(event: UIEvent) {
         const node = event.target as Node;
-        const entityElement = node && this.editor.getElementAtCursor(getEntitySelector(), node);
+        const entityElement = node && this.editor?.getElementAtCursor(getEntitySelector(), node);
 
         if (entityElement) {
             event.preventDefault();
@@ -165,7 +158,7 @@ export default class EntityPlugin implements PluginWithState<EntityPluginState> 
     }
 
     private handleCutEvent = (event: ClipboardEvent) => {
-        const range = this.editor.getSelectionRange();
+        const range = this.editor?.getSelectionRange();
         if (range && !range.collapsed) {
             this.checkRemoveEntityForRange(event);
         }
@@ -174,9 +167,10 @@ export default class EntityPlugin implements PluginWithState<EntityPluginState> 
     private handleMouseUpEvent(event: PluginMouseUpEvent) {
         const { rawEvent, isClicking } = event;
         const node = rawEvent.target as Node;
-        let entityElement: HTMLElement;
+        let entityElement: HTMLElement | null;
 
         if (
+            this.editor &&
             isClicking &&
             node &&
             !!(entityElement = this.editor.getElementAtCursor(getEntitySelector(), node))
@@ -194,7 +188,7 @@ export default class EntityPlugin implements PluginWithState<EntityPluginState> 
             event.which == Keys.DELETE ||
             event.which == Keys.ENTER
         ) {
-            const range = this.editor.getSelectionRange();
+            const range = this.editor?.getSelectionRange();
             if (range && !range.collapsed) {
                 this.checkRemoveEntityForRange(event);
             }
@@ -202,58 +196,70 @@ export default class EntityPlugin implements PluginWithState<EntityPluginState> 
     }
 
     private handleBeforePasteEvent(sanitizingOption: HtmlSanitizerOptions) {
-        const range = this.editor.getSelectionRange();
+        const range = this.editor?.getSelectionRange();
 
-        if (!range.collapsed) {
-            this.checkRemoveEntityForRange(null /*rawEvent*/);
+        if (range && !range.collapsed) {
+            this.checkRemoveEntityForRange(null! /*rawEvent*/);
         }
 
-        arrayPush(sanitizingOption.additionalAllowedCssClasses, ALLOWED_CSS_CLASSES);
-    }
-
-    private handleBeforeSetContentEvent() {
-        this.cacheShadowEntities(this.state.shadowEntityCache);
+        if (sanitizingOption.additionalAllowedCssClasses) {
+            arrayPush(sanitizingOption.additionalAllowedCssClasses, ALLOWED_CSS_CLASSES);
+        }
     }
 
     private handleContentChangedEvent(event?: ContentChangedEvent) {
+        let shouldNormalizeDelimiters: boolean = false;
         // 1. find removed entities
-        for (let i = this.state.knownEntityElements.length - 1; i >= 0; i--) {
-            const element = this.state.knownEntityElements[i];
-            if (!this.editor.contains(element)) {
-                this.setIsEntityKnown(element, false /*isKnown*/);
+        getObjectKeys(this.state.entityMap).forEach(id => {
+            const item = this.state.entityMap[id];
+            const element = item.element;
 
-                if (element.shadowRoot) {
-                    this.triggerEvent(element, EntityOperation.RemoveShadowRoot);
+            if (this.editor && !item.isDeleted && !this.editor.contains(element)) {
+                item.isDeleted = true;
+
+                if (event?.source == ChangeSource.SetContent) {
+                    this.triggerEvent(element, EntityOperation.Overwrite);
+                }
+
+                if (
+                    !shouldNormalizeDelimiters &&
+                    !element.isContentEditable &&
+                    !isBlockElement(element)
+                ) {
+                    shouldNormalizeDelimiters = true;
                 }
             }
-        }
+        });
 
         // 2. collect all new entities
-        const knownIds = this.state.knownEntityElements
-            .map(e => getEntityFromElement(e)?.id)
-            .filter(x => !!x);
         const newEntities =
             event?.source == ChangeSource.InsertEntity && event.data
                 ? [event.data as Entity]
-                : this.getExistingEntities().filter(({ wrapper }) => !this.isEntityKnown(wrapper));
+                : this.getExistingEntities().filter(entity => {
+                      const item = this.state.entityMap[entity.id];
+
+                      return !item || item.element != entity.wrapper || item.isDeleted;
+                  });
 
         // 3. Add new entities to known entity list, and hydrate
         newEntities.forEach(entity => {
             const { wrapper, type, id, isReadonly } = entity;
 
-            entity.id = this.ensureUniqueId(type, id, knownIds);
+            entity.id = this.ensureUniqueId(type, id, wrapper);
             commitEntity(wrapper, type, isReadonly, entity.id); // Use entity.id here because it is newly updated
             this.handleNewEntity(entity);
         });
 
-        Object.keys(this.state.shadowEntityCache).forEach(id => {
-            this.triggerEvent(this.state.shadowEntityCache[id], EntityOperation.Overwrite);
-            delete this.state.shadowEntityCache[id];
-        });
+        if (
+            shouldNormalizeDelimiters &&
+            this.editor?.isFeatureEnabled(ExperimentalFeatures.InlineEntityReadOnlyDelimiters)
+        ) {
+            normalizeDelimitersInEditor(this.editor);
+        }
     }
 
     private handleEntityOperationEvent(event: EntityOperationEvent) {
-        if (REMOVE_ENTITY_OPERATIONS.indexOf(event.operation) >= 0) {
+        if (this.editor && REMOVE_ENTITY_OPERATIONS.indexOf(event.operation) >= 0) {
             this.cancelAsyncRun?.();
             this.cancelAsyncRun = this.editor.runAsync(() => {
                 this.cancelAsyncRun = null;
@@ -273,7 +279,7 @@ export default class EntityPlugin implements PluginWithState<EntityPluginState> 
     private checkRemoveEntityForRange(event: Event) {
         const editableEntityElements: HTMLElement[] = [];
         const selector = getEntitySelector();
-        this.editor.queryElements(selector, QueryScope.OnSelection, element => {
+        this.editor?.queryElements(selector, QueryScope.OnSelection, element => {
             if (element.isContentEditable) {
                 editableEntityElements.push(element);
             } else {
@@ -283,7 +289,7 @@ export default class EntityPlugin implements PluginWithState<EntityPluginState> 
 
         // For editable entities, we need to check if it is fully or partially covered by current selection,
         // and trigger different events;
-        if (editableEntityElements.length > 0) {
+        if (this.editor && editableEntityElements.length > 0) {
             const inSelectionEntityElements = this.editor.queryElements(
                 selector,
                 QueryScope.InSelection
@@ -299,86 +305,43 @@ export default class EntityPlugin implements PluginWithState<EntityPluginState> 
         }
     }
 
-    private triggerEvent(
-        element: HTMLElement,
-        operation: EntityOperation,
-        rawEvent?: Event,
-        contentForShadowEntity?: DocumentFragment
-    ) {
+    private triggerEvent(element: HTMLElement, operation: EntityOperation, rawEvent?: Event) {
         const entity = element && getEntityFromElement(element);
 
-        if (entity) {
-            this.editor.triggerPluginEvent(PluginEventType.EntityOperation, {
-                operation,
-                rawEvent,
-                entity,
-                contentForShadowEntity,
-            });
-        }
+        return entity
+            ? this.editor?.triggerPluginEvent(PluginEventType.EntityOperation, {
+                  operation,
+                  rawEvent,
+                  entity,
+              })
+            : null;
     }
 
     private handleNewEntity(entity: Entity) {
         const { wrapper } = entity;
-        const fragment = this.editor.getDocument().createDocumentFragment();
-        const cache = this.state.shadowEntityCache[entity.id];
-        delete this.state.shadowEntityCache[entity.id];
+        const event = this.triggerEvent(wrapper, EntityOperation.NewEntity);
 
-        if (cache?.shadowRoot) {
-            moveChildNodes(fragment, cache.shadowRoot);
+        const newItem: KnownEntityItem = {
+            element: entity.wrapper,
+        };
+
+        if (event?.shouldPersist) {
+            newItem.canPersist = true;
         }
 
-        this.triggerEvent(wrapper, EntityOperation.NewEntity, undefined /*rawEvent*/, fragment);
-
-        // If there is element to hydrate for shadow entity, create shadow root and mount these elements to shadow root
-        // Then trigger AddShadowRoot so that plugins can do further actions
-        if (fragment.firstChild) {
-            if (wrapper.shadowRoot) {
-                moveChildNodes(wrapper.shadowRoot, fragment);
-            } else {
-                this.createShadowRoot(wrapper, fragment);
-            }
-        } else if (wrapper.shadowRoot) {
-            // If no elements to hydrate, remove existing shadow root by cloning a new node
-            this.triggerEvent(wrapper, EntityOperation.RemoveShadowRoot);
-
-            const newWrapper = wrapper.cloneNode() as HTMLElement;
-            moveChildNodes(newWrapper, wrapper);
-            this.editor.replaceNode(wrapper, newWrapper);
-            entity.wrapper = newWrapper;
-        }
-
-        this.setIsEntityKnown(entity.wrapper, true /*isKnown*/);
+        this.state.entityMap[entity.id] = newItem;
     }
 
-    private getExistingEntities(shadowEntityOnly?: boolean): Entity[] {
-        return this.editor
-            .queryElements(getEntitySelector())
-            .map(getEntityFromElement)
-            .filter(x => !!x && (!shadowEntityOnly || !!x.wrapper.shadowRoot));
+    private getExistingEntities(): Entity[] {
+        return (
+            this.editor
+                ?.queryElements(getEntitySelector())
+                .map(getEntityFromElement)
+                .filter((x): x is Entity => !!x) ?? []
+        );
     }
 
-    private createShadowRoot(wrapper: HTMLElement, shadowContentContainer?: Node) {
-        if (wrapper.attachShadow) {
-            const shadowRoot = wrapper.attachShadow({
-                mode: 'open',
-                delegatesFocus: true,
-            });
-
-            wrapper.contentEditable = 'false';
-            this.triggerEvent(wrapper, EntityOperation.AddShadowRoot);
-            moveChildNodes(shadowRoot, shadowContentContainer);
-
-            return shadowRoot;
-        }
-    }
-
-    private cacheShadowEntities(cache: Record<string, HTMLElement>) {
-        this.getExistingEntities(true /*shadowEntityOnly*/).forEach(({ wrapper, id }) => {
-            cache[id] = wrapper;
-        });
-    }
-
-    private ensureUniqueId(type: string, id: string, knownIds: string[]) {
+    private ensureUniqueId(type: string, id: string, wrapper: HTMLElement) {
         const match = ENTITY_ID_REGEX.exec(id);
         const baseId = (match ? id.substr(0, id.length - match[0].length) : id) || type;
 
@@ -388,26 +351,14 @@ export default class EntityPlugin implements PluginWithState<EntityPluginState> 
         for (let num = (match && parseInt(match[1])) || 0; ; num++) {
             newId = num > 0 ? `${baseId}_${num}` : baseId;
 
-            if (knownIds.indexOf(newId) < 0) {
-                knownIds.push(newId);
+            const item = this.state.entityMap[newId];
+
+            if (!item || item.element == wrapper) {
                 break;
             }
         }
 
         return newId;
-    }
-
-    private setIsEntityKnown(wrapper: HTMLElement, isKnown: boolean) {
-        const index = this.state.knownEntityElements.indexOf(wrapper);
-        if (isKnown && index < 0) {
-            this.state.knownEntityElements.push(wrapper);
-        } else if (!isKnown && index >= 0) {
-            this.state.knownEntityElements.splice(index, 1);
-        }
-    }
-
-    private isEntityKnown(wrapper: HTMLElement) {
-        return this.state.knownEntityElements.indexOf(wrapper) >= 0;
     }
 }
 

@@ -7,6 +7,8 @@ import { QuoteFeatures } from './features/quoteFeatures';
 import { ShortcutFeatures } from './features/shortcutFeatures';
 import { StructuredNodeFeatures } from './features/structuredNodeFeatures';
 import { TableFeatures } from './features/tableFeatures';
+import { TextFeatures } from './features/textFeatures';
+import { CodeFeatures } from './features/codeFeatures';
 import {
     BuildInEditFeature,
     ContentEditFeatureSettings,
@@ -23,14 +25,13 @@ const allFeatures = {
     ...CursorFeatures,
     ...MarkdownFeatures,
     ...EntityFeatures,
+    ...TextFeatures,
+    ...CodeFeatures,
 };
 
 /**
  * Get all content edit features provided by roosterjs
  */
-export default function getAllFeatures(): Record<
-    keyof ContentEditFeatureSettings,
-    BuildInEditFeature<PluginEvent>
-> {
-    return allFeatures;
+export default function getAllFeatures() {
+    return allFeatures as Record<keyof ContentEditFeatureSettings, BuildInEditFeature<PluginEvent>>;
 }

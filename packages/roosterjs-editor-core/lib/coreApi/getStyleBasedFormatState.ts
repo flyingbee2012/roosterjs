@@ -1,8 +1,5 @@
-import { DarkModeDatasetNames, EditorCore, GetStyleBasedFormatState } from 'roosterjs-editor-types';
-import { findClosestElementAncestor, getComputedStyles } from 'roosterjs-editor-dom';
-
-const ORIGINAL_STYLE_COLOR_SELECTOR = `[data-${DarkModeDatasetNames.OriginalStyleColor}],[data-${DarkModeDatasetNames.OriginalAttributeColor}]`;
-const ORIGINAL_STYLE_BACK_COLOR_SELECTOR = `[data-${DarkModeDatasetNames.OriginalStyleBackgroundColor}],[data-${DarkModeDatasetNames.OriginalAttributeBackgroundColor}]`;
+import { contains, getComputedStyles } from 'roosterjs-editor-dom';
+import { EditorCore, GetStyleBasedFormatState, NodeType } from 'roosterjs-editor-types';
 
 /**
  * @internal
@@ -12,43 +9,85 @@ const ORIGINAL_STYLE_BACK_COLOR_SELECTOR = `[data-${DarkModeDatasetNames.Origina
  */
 export const getStyleBasedFormatState: GetStyleBasedFormatState = (
     core: EditorCore,
-    node: Node
+    node: Node | null
 ) => {
     if (!node) {
         return {};
     }
-    const styles = node ? getComputedStyles(node) : [];
-    const isDarkMode = core.lifecycle.isDarkMode;
-    const root = core.contentDiv;
-    const ogTextColorNode =
-        isDarkMode && findClosestElementAncestor(node, root, ORIGINAL_STYLE_COLOR_SELECTOR);
-    const ogBackgroundColorNode =
-        isDarkMode && findClosestElementAncestor(node, root, ORIGINAL_STYLE_BACK_COLOR_SELECTOR);
+
+    let override: string[] = [];
+    const pendableFormatSpan = core.pendingFormatState.pendableFormatSpan;
+
+    if (pendableFormatSpan) {
+        override = [
+            pendableFormatSpan.style.fontFamily,
+            pendableFormatSpan.style.fontSize,
+            pendableFormatSpan.style.color,
+            pendableFormatSpan.style.backgroundColor,
+        ];
+    }
+
+    const styles = node
+        ? getComputedStyles(node, [
+              'font-family',
+              'font-size',
+              'color',
+              'background-color',
+              'line-height',
+              'margin-top',
+              'margin-bottom',
+              'text-align',
+              'direction',
+          ])
+        : [];
+    const { contentDiv, darkColorHandler } = core;
+
+    let styleTextColor: string | undefined;
+    let styleBackColor: string | undefined;
+
+    while (
+        node &&
+        contains(contentDiv, node, true /*treatSameNodeAsContain*/) &&
+        !(styleTextColor && styleBackColor)
+    ) {
+        if (node.nodeType == NodeType.Element) {
+            const element = node as HTMLElement;
+
+            styleTextColor = styleTextColor || element.style.getPropertyValue('color');
+            styleBackColor = styleBackColor || element.style.getPropertyValue('background-color');
+        }
+        node = node.parentNode;
+    }
+
+    if (!core.lifecycle.isDarkMode && node == core.contentDiv) {
+        styleTextColor = styleTextColor || styles[2];
+        styleBackColor = styleBackColor || styles[3];
+    }
+
+    const textColor = darkColorHandler.parseColorValue(override[2] || styleTextColor);
+    const backColor = darkColorHandler.parseColorValue(override[3] || styleBackColor);
 
     return {
-        fontName: styles[0],
-        fontSize: styles[1],
-        textColor: styles[2],
-        backgroundColor: styles[3],
-        textColors: ogTextColorNode
+        fontName: override[0] || styles[0],
+        fontSize: override[1] || styles[1],
+        textColor: textColor.lightModeColor,
+        backgroundColor: backColor.lightModeColor,
+        textColors: textColor.darkModeColor
             ? {
-                  darkModeColor: styles[2],
-                  lightModeColor:
-                      ogTextColorNode.dataset[DarkModeDatasetNames.OriginalStyleColor] ||
-                      ogTextColorNode.dataset[DarkModeDatasetNames.OriginalAttributeColor],
+                  lightModeColor: textColor.lightModeColor,
+                  darkModeColor: textColor.darkModeColor,
               }
             : undefined,
-        backgroundColors: ogBackgroundColorNode
+        backgroundColors: backColor.darkModeColor
             ? {
-                  darkModeColor: styles[3],
-                  lightModeColor:
-                      ogBackgroundColorNode.dataset[
-                          DarkModeDatasetNames.OriginalStyleBackgroundColor
-                      ] ||
-                      ogBackgroundColorNode.dataset[
-                          DarkModeDatasetNames.OriginalAttributeBackgroundColor
-                      ],
+                  lightModeColor: backColor.lightModeColor,
+                  darkModeColor: backColor.darkModeColor,
               }
             : undefined,
+        lineHeight: styles[4],
+        marginTop: styles[5],
+        marginBottom: styles[6],
+        textAlign: styles[7],
+        direction: styles[8],
     };
 };

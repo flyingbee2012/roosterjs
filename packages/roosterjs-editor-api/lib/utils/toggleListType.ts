@@ -1,6 +1,17 @@
 import blockFormat from '../utils/blockFormat';
 import { createVListFromRegion, getBlockElementAtNode } from 'roosterjs-editor-dom';
-import { IEditor, ListType } from 'roosterjs-editor-types';
+import {
+    BulletListType,
+    ExperimentalFeatures,
+    IEditor,
+    ListType,
+    NumberingListType,
+} from 'roosterjs-editor-types';
+import type {
+    CompatibleBulletListType,
+    CompatibleListType,
+    CompatibleNumberingListType,
+} from 'roosterjs-editor-types/lib/compatibleTypes';
 
 /**
  * Toggle List Type at selection
@@ -18,27 +29,50 @@ import { IEditor, ListType } from 'roosterjs-editor-types';
  * @param listType The list type to toggle
  * @param startNumber (Optional) Start number of the list
  * @param includeSiblingLists Sets wether the operation should include Sibling Lists, by default true
+ * @param orderedStyle (Optional) the style of an ordered. If not defined, the style will be set to decimal.
+ * @param unorderedStyle (Optional) the style of an unordered list. If not defined, the style will be set to disc.
+ * @param apiNameOverride (Optional) Set a new api name, if empty the api name will be 'toggleListType'.
  */
 export default function toggleListType(
     editor: IEditor,
-    listType: ListType,
-    startNumber?: number,
-    includeSiblingLists: boolean = true
+    listType: ListType | CompatibleListType,
+    startNumber: number = 0,
+    includeSiblingLists: boolean = true,
+    orderedStyle?: NumberingListType | CompatibleNumberingListType,
+    unorderedStyle?: BulletListType | CompatibleBulletListType,
+    apiNameOverride?: string
 ) {
-    blockFormat(editor, (region, start, end, chains) => {
-        const chain =
-            startNumber > 0 && chains.filter(chain => chain.canAppendAtCursor(startNumber))[0];
-        const vList =
-            chain && start.equalTo(end)
-                ? chain.createVListAtBlock(
-                      getBlockElementAtNode(region.rootNode, start.node)?.collapseToSingleElement(),
-                      startNumber
-                  )
-                : createVListFromRegion(region, includeSiblingLists);
+    blockFormat(
+        editor,
+        (region, start, end, chains) => {
+            const chain =
+                startNumber > 0 && chains.filter(chain => chain.canAppendAtCursor(startNumber))[0];
+            const block = getBlockElementAtNode(
+                region.rootNode,
+                start?.node ?? null
+            )?.collapseToSingleElement();
+            if (!block) {
+                return;
+            }
+            const vList =
+                chain && end && start?.equalTo(end)
+                    ? chain.createVListAtBlock(block, startNumber)
+                    : createVListFromRegion(
+                          region,
+                          startNumber === 1 ? false : includeSiblingLists
+                      );
 
-        if (vList) {
-            vList.changeListType(start, end, listType);
-            vList.writeBack();
-        }
-    });
+            if (vList && start && end) {
+                vList.changeListType(start, end, listType);
+                if (editor.isFeatureEnabled(ExperimentalFeatures.AutoFormatList)) {
+                    vList.setListStyleType(orderedStyle, unorderedStyle);
+                }
+                vList.writeBack(
+                    editor.isFeatureEnabled(ExperimentalFeatures.ReuseAllAncestorListElements)
+                );
+            }
+        },
+        undefined /* beforeRunCallback */,
+        apiNameOverride || 'toggleListType'
+    );
 }

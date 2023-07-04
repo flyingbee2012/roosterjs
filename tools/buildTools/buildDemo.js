@@ -2,43 +2,44 @@
 
 const path = require('path');
 const fs = require('fs');
-const webpack = require('webpack');
 const {
     rootPath,
     nodeModulesPath,
     packagesPath,
     deployPath,
     roosterJsDistPath,
-    packages,
-    runNode,
-    mainPackageJson,
+    packagesUiPath,
+    roosterJsUiDistPath,
+    runWebPack,
+    getWebpackExternalCallback,
 } = require('./common');
 
 async function buildDemoSite() {
     const sourcePathRoot = path.join(rootPath, 'demo');
     const sourcePath = path.join(sourcePathRoot, 'scripts');
-    const typescriptPath = path.join(nodeModulesPath, 'typescript/lib/tsc.js');
-
-    runNode(typescriptPath + ' --noEmit ', sourcePath);
-
-    const distPathRoot = path.join(deployPath);
     const filename = 'demo.js';
     const webpackConfig = {
         entry: path.join(sourcePath, 'index.ts'),
         devtool: 'source-map',
         output: {
             filename,
-            path: distPathRoot,
+            path: deployPath,
         },
         resolve: {
             extensions: ['.ts', '.tsx', '.js', '.svg', '.scss', '.'],
-            modules: [sourcePath, packagesPath, nodeModulesPath],
+            modules: [sourcePath, packagesPath, packagesUiPath, nodeModulesPath],
         },
         module: {
             rules: [
                 {
                     test: /\.tsx?$/,
                     loader: 'ts-loader',
+                    options: {
+                        compilerOptions: {
+                            downlevelIteration: true,
+                            importHelpers: true,
+                        },
+                    },
                 },
                 {
                     test: /\.svg$/,
@@ -63,16 +64,10 @@ async function buildDemoSite() {
                 },
             ],
         },
-        externals: packages.reduce(
-            (externals, packageName) => {
-                externals[packageName] = 'roosterjs';
-                return externals;
-            },
-            {
-                react: 'React',
-                'react-dom': 'ReactDOM',
-            }
-        ),
+        externals: getWebpackExternalCallback([
+            [/^roosterjs-editor-plugins\/.*$/, 'roosterjs'],
+            [/^rosterjs-react\/.*$/, 'roosterjsReact'],
+        ]),
         stats: 'minimal',
         mode: 'production',
         optimization: {
@@ -80,33 +75,28 @@ async function buildDemoSite() {
         },
     };
 
-    await new Promise((resolve, reject) => {
-        webpack(webpackConfig).run(err => {
-            if (err) {
-                reject(err);
-            } else {
-                fs.copyFileSync(
-                    path.resolve(roosterJsDistPath, 'rooster-min.js'),
-                    path.resolve(distPathRoot, 'rooster-min.js')
-                );
-                fs.copyFileSync(
-                    path.resolve(roosterJsDistPath, 'rooster-min.js.map'),
-                    path.resolve(distPathRoot, 'rooster-min.js.map')
-                );
-                fs.copyFileSync(
-                    path.resolve(sourcePathRoot, 'index.html'),
-                    path.resolve(distPathRoot, 'index.html')
-                );
-                var outputFilename = path.join(distPathRoot, filename);
-                fs.writeFileSync(
-                    outputFilename,
-                    `window.roosterJsVer = "v${mainPackageJson.version}";` +
-                        fs.readFileSync(outputFilename).toString()
-                );
-                resolve();
-            }
-        });
-    });
+    await runWebPack(webpackConfig);
+
+    fs.copyFileSync(
+        path.resolve(roosterJsDistPath, 'rooster-min.js'),
+        path.resolve(deployPath, 'rooster-min.js')
+    );
+    fs.copyFileSync(
+        path.resolve(roosterJsDistPath, 'rooster-min.js.map'),
+        path.resolve(deployPath, 'rooster-min.js.map')
+    );
+    fs.copyFileSync(
+        path.resolve(roosterJsUiDistPath, 'rooster-react-min.js'),
+        path.resolve(deployPath, 'rooster-react-min.js')
+    );
+    fs.copyFileSync(
+        path.resolve(roosterJsUiDistPath, 'rooster-react-min.js.map'),
+        path.resolve(deployPath, 'rooster-react-min.js.map')
+    );
+    fs.copyFileSync(
+        path.resolve(sourcePathRoot, 'index.html'),
+        path.resolve(deployPath, 'index.html')
+    );
 }
 
 module.exports = {

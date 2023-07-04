@@ -1,4 +1,5 @@
-import { ChangeSource, IEditor, TableFormat } from 'roosterjs-editor-types';
+import formatUndoSnapshot from '../utils/formatUndoSnapshot';
+import { IEditor, TableFormat } from 'roosterjs-editor-types';
 import { VTable } from 'roosterjs-editor-dom';
 
 /**
@@ -14,12 +15,23 @@ export default function formatTable(
 ) {
     table = table || (editor.getElementAtCursor('TABLE') as HTMLTableElement);
     if (table) {
-        editor.addUndoSnapshot((start, end) => {
-            let vtable = new VTable(table);
-            vtable.applyFormat(format);
-            vtable.writeBack();
-            editor.focus();
-            editor.select(start, end);
-        }, ChangeSource.Format);
+        formatUndoSnapshot(
+            editor,
+            (start, end) => {
+                if (!table) {
+                    return;
+                }
+
+                let vtable = new VTable(table);
+                vtable.applyFormat(format);
+                vtable.writeBack(false /** skipApplyFormat */, editor.getDarkColorHandler());
+                editor.transformToDarkColor(vtable.table);
+                editor.focus();
+                if (start && end) {
+                    editor.select(start, end);
+                }
+            },
+            'formatTable'
+        );
     }
 }

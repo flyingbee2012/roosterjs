@@ -1,18 +1,26 @@
+import commitListChains from '../utils/commitListChains';
 import {
+    addDelimiters,
+    applyFormat,
     commitEntity,
+    createElement,
     getEntityFromElement,
     getEntitySelector,
     Position,
+    VListChain,
     wrap,
 } from 'roosterjs-editor-dom';
 import {
     ChangeSource,
     ContentPosition,
     Entity,
+    ExperimentalFeatures,
     IEditor,
+    KnownCreateElementDataIndex,
     NodePosition,
     PositionType,
 } from 'roosterjs-editor-types';
+import type { CompatibleContentPosition } from 'roosterjs-editor-types/lib/compatibleTypes';
 
 /**
  * Insert an entity into editor.
@@ -21,8 +29,13 @@ import {
  * @param contentNode Root element of the entity
  * @param isBlock Whether the entity will be shown as a block
  * @param isReadonly Whether the entity will be a readonly entity
- * @param position (Optional) The position to insert into. If not specified, current position will be used.
+ * @param position @optional The position to insert into. If not specified, current position will be used.
  * If isBlock is true, entity will be insert below this position
+ * @param insertToRegionRoot @optional When pass true, insert the entity at the root level of current region.
+ * Parent nodes will be split if need
+ * @param focusAfterEntity @optional When pass true, focus will be moved next to the entity. For inline entity,
+ * focus will be after right after the entity (and the delimiter if exist). For block entity, focus will be in
+ * the new empty line below the entity
  */
 export default function insertEntity(
     editor: IEditor,
@@ -30,9 +43,18 @@ export default function insertEntity(
     contentNode: Node,
     isBlock: boolean,
     isReadonly: boolean,
-    position?: NodePosition | ContentPosition.Begin | ContentPosition.End | ContentPosition.DomEnd
+    position?:
+        | NodePosition
+        | ContentPosition.Begin
+        | ContentPosition.End
+        | ContentPosition.DomEnd
+        | CompatibleContentPosition.Begin
+        | CompatibleContentPosition.End
+        | CompatibleContentPosition.DomEnd,
+    insertToRegionRoot?: boolean,
+    focusAfterEntity?: boolean
 ): Entity {
-    const wrapper = wrap(contentNode, isBlock ? 'DIV' : 'SPAN');
+    const wrapper = wrap(contentNode, isBlock ? 'div' : 'span');
 
     // For inline & readonly entity, we need to set display to "inline-block" otherwise
     // there will be some weird behavior when move cursor around the entity node.
@@ -47,12 +69,16 @@ export default function insertEntity(
     commitEntity(wrapper, type, isReadonly);
 
     if (!editor.contains(wrapper)) {
-        let currentRange: Range;
+        let currentRange: Range | null = null;
         let contentPosition:
             | ContentPosition.Begin
             | ContentPosition.End
             | ContentPosition.DomEnd
-            | ContentPosition.SelectionStart;
+            | ContentPosition.SelectionStart
+            | CompatibleContentPosition.Begin
+            | CompatibleContentPosition.End
+            | CompatibleContentPosition.DomEnd
+            | CompatibleContentPosition.SelectionStart;
 
         if (typeof position == 'number') {
             contentPosition = position;
@@ -73,12 +99,20 @@ export default function insertEntity(
             contentPosition = ContentPosition.SelectionStart;
         }
 
+        const regions = insertToRegionRoot && editor.getSelectedRegions();
+        const chains = regions && VListChain.createListChains(regions);
+
         editor.insertNode(wrapper, {
             updateCursor: false,
             insertOnNewLine: isBlock,
             replaceSelection: true,
             position: contentPosition,
+            insertToRegionRoot: insertToRegionRoot,
         });
+
+        if (chains) {
+            commitListChains(editor, chains);
+        }
 
         if (contentPosition == ContentPosition.SelectionStart) {
             if (currentRange) {
@@ -89,14 +123,42 @@ export default function insertEntity(
         }
     }
 
+    const entity = getEntityFromElement(wrapper)!;
+
     if (isBlock) {
         // Insert an extra empty line for block entity to make sure
         // user can still put cursor below the entity.
-        const br = editor.getDocument().createElement('BR');
-        wrapper.parentNode.insertBefore(br, wrapper.nextSibling);
+        const newLine = createElement(KnownCreateElementDataIndex.EmptyLine, editor.getDocument());
+
+        wrapper.parentNode?.insertBefore(newLine!, wrapper.nextSibling);
+
+        if (newLine) {
+            applyFormat(
+                newLine as HTMLElement,
+                editor.getDefaultFormat(),
+                editor.isDarkMode(),
+                editor.getDarkColorHandler()
+            );
+        }
+
+        if (focusAfterEntity) {
+            const br = newLine?.querySelector('br');
+            const pos = br && new Position(br, PositionType.Before);
+
+            if (pos) {
+                editor.select(pos);
+            }
+        }
+    } else if (
+        isReadonly &&
+        editor.isFeatureEnabled(ExperimentalFeatures.InlineEntityReadOnlyDelimiters)
+    ) {
+        addDelimiters(entity.wrapper);
+        if (entity.wrapper.nextElementSibling) {
+            editor.select(new Position(entity.wrapper.nextElementSibling, PositionType.After));
+        }
     }
 
-    const entity = getEntityFromElement(wrapper);
     editor.triggerContentChangedEvent(ChangeSource.InsertEntity, entity);
 
     return entity;

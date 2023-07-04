@@ -1,5 +1,5 @@
 import readFile from '../utils/readFile';
-import toArray from '../utils/toArray';
+import toArray from '../jsUtils/toArray';
 import {
     ClipboardData,
     ContentTypePrefix,
@@ -21,19 +21,20 @@ import {
 export default function extractClipboardItemsForIE(
     dataTransfer: DataTransfer,
     callback: (data: ClipboardData) => void,
-    options: ExtractClipboardItemsForIEOptions
+    options?: ExtractClipboardItemsForIEOptions
 ) {
     const clipboardData: ClipboardData = {
         types: dataTransfer.types ? toArray(dataTransfer.types) : [],
         text: dataTransfer.getData('text'),
         image: null,
+        files: [],
         rawHtml: null,
         customValues: {},
     };
 
     for (let i = 0; i < (dataTransfer.files ? dataTransfer.files.length : 0); i++) {
         let file = dataTransfer.files.item(i);
-        if (file.type?.indexOf(ContentTypePrefix.Image) == 0) {
+        if (file?.type?.indexOf(ContentTypePrefix.Image) == 0) {
             clipboardData.image = file;
             break;
         }
@@ -55,9 +56,9 @@ export default function extractClipboardItemsForIE(
         div.contentEditable = 'true';
         div.innerHTML = '';
         div.focus();
-        div.ownerDocument.defaultView.setTimeout(() => {
+        div.ownerDocument?.defaultView?.setTimeout(() => {
             clipboardData.rawHtml = div.innerHTML;
-            options.removeTempDiv(div);
+            options.removeTempDiv?.(div);
             nextStep();
         }, 0);
     } else {

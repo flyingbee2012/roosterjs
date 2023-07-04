@@ -1,6 +1,13 @@
 import TableEditor from './editors/TableEditor';
-import { EditorPlugin, IEditor, PluginEvent, PluginEventType, Rect } from 'roosterjs-editor-types';
-import { normalizeRect } from 'roosterjs-editor-dom';
+import { normalizeRect, safeInstanceOf } from 'roosterjs-editor-dom';
+import {
+    CreateElementData,
+    EditorPlugin,
+    IEditor,
+    PluginEvent,
+    PluginEventType,
+    Rect,
+} from 'roosterjs-editor-types';
 
 const TABLE_RESIZER_LENGTH = 12;
 
@@ -8,10 +15,23 @@ const TABLE_RESIZER_LENGTH = 12;
  * TableResize plugin, provides the ability to resize a table by drag-and-drop
  */
 export default class TableResize implements EditorPlugin {
-    private editor: IEditor;
-    private onMouseMoveDisposer: () => void;
-    private tableRectMap: { table: HTMLTableElement; rect: Rect }[] = null;
-    private tableEditor: TableEditor;
+    private editor: IEditor | null = null;
+    private onMouseMoveDisposer: (() => void) | null = null;
+    private tableRectMap: { table: HTMLTableElement; rect: Rect }[] | null = null;
+    private tableEditor: TableEditor | null = null;
+
+    /**
+     * Construct a new instance of TableResize plugin
+     * @param onShowHelperElement An optional callback to allow customize helper element of table resizing.
+     * To customize the helper element, add this callback and change the attributes of elementData then it
+     * will be picked up by TableResize code
+     */
+    constructor(
+        private onShowHelperElement?: (
+            elementData: CreateElementData,
+            helperType: 'CellResizer' | 'TableInserter' | 'TableResizer' | 'TableSelector'
+        ) => void
+    ) {}
 
     /**
      * Get a friendly name of  this plugin
@@ -26,17 +46,33 @@ export default class TableResize implements EditorPlugin {
      */
     initialize(editor: IEditor) {
         this.editor = editor;
-        this.onMouseMoveDisposer = this.editor.addDomEventHandler({ mousemove: this.onMouseMove });
+        this.onMouseMoveDisposer = this.editor.addDomEventHandler({
+            mousemove: this.onMouseMove,
+            mouseout: e => this.onMouseOut(e),
+        });
     }
+
+    private onMouseOut = (ev: Event) => {
+        if (
+            isMouseEvent(ev) &&
+            safeInstanceOf(ev.relatedTarget, 'HTMLElement') &&
+            this.tableEditor &&
+            !this.tableEditor.isOwnedElement(ev.relatedTarget) &&
+            !this.editor?.contains(ev.relatedTarget)
+        ) {
+            this.setTableEditor(null);
+        }
+    };
 
     /**
      * Dispose this plugin
      */
     dispose() {
-        this.onMouseMoveDisposer();
+        this.onMouseMoveDisposer?.();
         this.invalidateTableRects();
-        this.setTableEditor(null);
+        this.disposeTableEditor();
         this.editor = null;
+        this.onMouseMoveDisposer = null;
     }
 
     /**
@@ -48,47 +84,60 @@ export default class TableResize implements EditorPlugin {
             case PluginEventType.Input:
             case PluginEventType.ContentChanged:
             case PluginEventType.Scroll:
+            case PluginEventType.ZoomChanged:
                 this.setTableEditor(null);
                 this.invalidateTableRects();
                 break;
         }
     }
 
-    private onMouseMove = (e: MouseEvent) => {
-        if (e.buttons > 0) {
+    private onMouseMove = (event: Event) => {
+        const e = event as MouseEvent;
+
+        if (e.buttons > 0 || !this.editor) {
             return;
         }
 
         this.ensureTableRects();
-        const { pageX: x, pageY: y } = e;
+
+        const editorWindow = this.editor.getDocument().defaultView || window;
+        const x = e.pageX - editorWindow.scrollX;
+        const y = e.pageY - editorWindow.scrollY;
         let currentTable: HTMLTableElement | null = null;
 
-        for (let i = this.tableRectMap.length - 1; i >= 0; i--) {
-            const { table, rect } = this.tableRectMap[i];
+        if (this.tableRectMap) {
+            for (let i = this.tableRectMap.length - 1; i >= 0; i--) {
+                const { table, rect } = this.tableRectMap[i];
 
-            if (
-                x >= rect.left - TABLE_RESIZER_LENGTH &&
-                x <= rect.right + TABLE_RESIZER_LENGTH &&
-                y >= rect.top - TABLE_RESIZER_LENGTH &&
-                y <= rect.bottom + TABLE_RESIZER_LENGTH
-            ) {
-                currentTable = table;
-                break;
+                if (
+                    x >= rect.left - TABLE_RESIZER_LENGTH &&
+                    x <= rect.right + TABLE_RESIZER_LENGTH &&
+                    y >= rect.top - TABLE_RESIZER_LENGTH &&
+                    y <= rect.bottom + TABLE_RESIZER_LENGTH
+                ) {
+                    currentTable = table;
+                    break;
+                }
             }
         }
 
-        this.setTableEditor(currentTable);
+        this.setTableEditor(currentTable, e);
         this.tableEditor?.onMouseMove(x, y);
     };
 
-    private setTableEditor(table: HTMLTableElement) {
-        if (this.tableEditor && table != this.tableEditor.table) {
-            this.tableEditor.dispose();
-            this.tableEditor = null;
+    private setTableEditor(table: HTMLTableElement | null, e?: MouseEvent) {
+        if (this.tableEditor && !this.tableEditor.isEditing() && table != this.tableEditor.table) {
+            this.disposeTableEditor();
         }
 
-        if (!this.tableEditor && table) {
-            this.tableEditor = new TableEditor(this.editor, table, this.invalidateTableRects);
+        if (!this.tableEditor && table && this.editor) {
+            this.tableEditor = new TableEditor(
+                this.editor,
+                table,
+                this.invalidateTableRects,
+                this.onShowHelperElement,
+                e?.currentTarget
+            );
         }
     }
 
@@ -96,13 +145,18 @@ export default class TableResize implements EditorPlugin {
         this.tableRectMap = null;
     };
 
+    private disposeTableEditor() {
+        this.tableEditor?.dispose();
+        this.tableEditor = null;
+    }
+
     private ensureTableRects() {
-        if (!this.tableRectMap) {
+        if (!this.tableRectMap && this.editor) {
             this.tableRectMap = [];
             this.editor.queryElements('table', table => {
                 if (table.isContentEditable) {
                     const rect = normalizeRect(table.getBoundingClientRect());
-                    if (rect) {
+                    if (rect && this.tableRectMap) {
                         this.tableRectMap.push({
                             table,
                             rect,
@@ -112,4 +166,8 @@ export default class TableResize implements EditorPlugin {
             });
         }
     }
+}
+
+function isMouseEvent(e: Event): e is MouseEvent {
+    return !!(e as MouseEvent).pageX;
 }

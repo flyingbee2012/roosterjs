@@ -2,8 +2,10 @@ import CopyPastePlugin from './CopyPastePlugin';
 import DOMEventPlugin from './DOMEventPlugin';
 import EditPlugin from './EditPlugin';
 import EntityPlugin from './EntityPlugin';
+import ImageSelection from './ImageSelection';
 import LifecyclePlugin from './LifecyclePlugin';
 import MouseUpPlugin from './MouseUpPlugin';
+import NormalizeTablePlugin from './NormalizeTablePlugin';
 import PendingFormatStatePlugin from './PendingFormatStatePlugin';
 import TypeInContainerPlugin from './TypeInContainerPlugin';
 import UndoPlugin from './UndoPlugin';
@@ -34,12 +36,14 @@ export default function createCorePlugins(
         edit: map.edit || new EditPlugin(),
         pendingFormatState: map.pendingFormatState || new PendingFormatStatePlugin(),
         _placeholder: null,
-        typeAfterLink: null, //deprecated after firefox update
+        typeAfterLink: null!, //deprecated after firefox update
         undo: map.undo || new UndoPlugin(options),
         domEvent: map.domEvent || new DOMEventPlugin(options, contentDiv),
         mouseUp: map.mouseUp || new MouseUpPlugin(),
         copyPaste: map.copyPaste || new CopyPastePlugin(options),
         entity: map.entity || new EntityPlugin(),
+        imageSelection: map.imageSelection || new ImageSelection(),
+        normalizeTable: map.normalizeTable || new NormalizeTablePlugin(),
         lifecycle: map.lifecycle || new LifecyclePlugin(options, contentDiv),
     };
 }

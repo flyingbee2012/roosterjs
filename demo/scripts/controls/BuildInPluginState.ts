@@ -17,8 +17,12 @@ export interface BuildInPluginList {
     tableCellSelection: boolean;
     tableResize: boolean;
     customReplace: boolean;
-    pickerPlugin: boolean;
+    listEditMenu: boolean;
+    imageEditMenu: boolean;
+    tableEditMenu: boolean;
     contextMenu: boolean;
+    autoFormat: boolean;
+    contentModelPaste: boolean;
 }
 
 export default interface BuildInPluginState {
@@ -27,10 +31,9 @@ export default interface BuildInPluginState {
     defaultFormat: DefaultFormat;
     linkTitle: string;
     watermarkText: string;
-    showRibbon: boolean;
-    supportDarkMode: boolean;
     experimentalFeatures: ExperimentalFeatures[];
     forcePreserveRatio: boolean;
+    isRtl: boolean;
 }
 
 export interface BuildInPluginProps extends BuildInPluginState, SidePaneElementProps {}

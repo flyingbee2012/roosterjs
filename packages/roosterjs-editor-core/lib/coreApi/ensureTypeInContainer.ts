@@ -10,6 +10,7 @@ import {
     applyFormat,
     createElement,
     createRange,
+    findClosestElementAncestor,
     getBlockElementAtNode,
     isNodeEmpty,
     Position,
@@ -26,13 +27,23 @@ export const ensureTypeInContainer: EnsureTypeInContainer = (
     position: NodePosition,
     keyboardEvent?: KeyboardEvent
 ) => {
+    const table = findClosestElementAncestor(position.node, core.contentDiv, 'table');
+    let td: HTMLElement | null;
+
+    if (table && (td = table.querySelector('td,th'))) {
+        position = new Position(td, PositionType.Begin);
+    }
     position = position.normalize();
+
     const block = getBlockElementAtNode(core.contentDiv, position.node);
-    let formatNode: HTMLElement;
+    let formatNode: HTMLElement | null;
 
     if (block) {
         formatNode = block.collapseToSingleElement();
-
+        if (isNodeEmpty(formatNode, false /* trimContent */, true /* shouldCountBrAsVisible */)) {
+            const brEl = formatNode.ownerDocument.createElement('br');
+            formatNode.append(brEl);
+        }
         // if the block is empty, apply default format
         // Otherwise, leave it as it is as we don't want to change the style for existing data
         // unless the block was just created by the keyboard event (e.g. ctrl+a & start typing)
@@ -56,16 +67,21 @@ export const ensureTypeInContainer: EnsureTypeInContainer = (
         });
 
         // element points to a wrapping node we added "<div><br></div>". We should move the selection left to <br>
-        position = new Position(formatNode.firstChild, PositionType.Begin);
+        position = new Position(formatNode, PositionType.Begin);
     }
 
-    if (formatNode) {
-        applyFormat(formatNode, core.lifecycle.defaultFormat, core.lifecycle.isDarkMode);
+    if (formatNode && core.lifecycle.defaultFormat) {
+        applyFormat(
+            formatNode,
+            core.lifecycle.defaultFormat,
+            core.lifecycle.isDarkMode,
+            core.darkColorHandler
+        );
     }
 
     // If this is triggered by a keyboard event, let's select the new position
     if (keyboardEvent) {
-        core.api.selectRange(core, createRange(position));
+        core.api.selectRange(core, createRange(new Position(position)));
     }
 };
 

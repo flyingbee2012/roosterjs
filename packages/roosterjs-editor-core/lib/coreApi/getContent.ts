@@ -12,6 +12,7 @@ import {
     getTextContent,
     safeInstanceOf,
 } from 'roosterjs-editor-dom';
+import type { CompatibleGetContentMode } from 'roosterjs-editor-types/lib/compatibleTypes';
 
 /**
  * @internal
@@ -20,8 +21,11 @@ import {
  * @param mode specify what kind of HTML content to retrieve
  * @returns HTML string representing current editor content
  */
-export const getContent: GetContent = (core: EditorCore, mode: GetContentMode): string => {
-    let content = '';
+export const getContent: GetContent = (
+    core: EditorCore,
+    mode: GetContentMode | CompatibleGetContentMode
+): string => {
+    let content: string | null = '';
     const triggerExtractContentEvent = mode == GetContentMode.CleanHTML;
     const includeSelectionMarker = mode == GetContentMode.RawHTMLWithSelection;
 
@@ -33,7 +37,7 @@ export const getContent: GetContent = (core: EditorCore, mode: GetContentMode): 
         content = root.textContent;
     } else if (mode == GetContentMode.PlainText) {
         content = getTextContent(root);
-    } else if (triggerExtractContentEvent || core.lifecycle.isDarkMode) {
+    } else {
         const clonedRoot = cloneNode(root);
         clonedRoot.normalize();
 
@@ -47,15 +51,15 @@ export const getContent: GetContent = (core: EditorCore, mode: GetContentMode): 
             : null;
         const range = path && createRange(clonedRoot, path.start, path.end);
 
-        if (core.lifecycle.isDarkMode) {
-            core.api.transformColor(
-                core,
-                clonedRoot,
-                false /*includeSelf*/,
-                null /*callback*/,
-                ColorTransformDirection.DarkToLight
-            );
-        }
+        core.api.transformColor(
+            core,
+            clonedRoot,
+            false /*includeSelf*/,
+            null /*callback*/,
+            ColorTransformDirection.DarkToLight,
+            true /*forceTransform*/,
+            core.lifecycle.isDarkMode
+        );
 
         if (triggerExtractContentEvent) {
             core.api.triggerEvent(
@@ -74,14 +78,9 @@ export const getContent: GetContent = (core: EditorCore, mode: GetContentMode): 
         } else {
             content = clonedRoot.innerHTML;
         }
-    } else {
-        content = getHtmlWithSelectionPath(
-            root,
-            includeSelectionMarker && core.api.getSelectionRange(core, true /*tryGetFromCache*/)
-        );
     }
 
-    return content;
+    return content ?? '';
 };
 
 function cloneNode(node: HTMLElement | DocumentFragment): HTMLElement {

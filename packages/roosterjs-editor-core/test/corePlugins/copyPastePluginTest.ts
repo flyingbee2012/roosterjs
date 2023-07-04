@@ -8,6 +8,7 @@ import {
     IEditor,
     PluginEventType,
     SelectionRangeTypes,
+    BeforeCutCopyEvent,
 } from 'roosterjs-editor-types';
 
 describe('CopyPastePlugin paste', () => {
@@ -17,7 +18,7 @@ describe('CopyPastePlugin paste', () => {
     let tempNode: HTMLElement = null;
     let addDomEventHandler: jasmine.Spy;
 
-    beforeEach(() => {
+    function getEditor(disposeResult: boolean = false) {
         handler = null;
         plugin = new CopyPastePlugin({});
 
@@ -32,7 +33,7 @@ describe('CopyPastePlugin paste', () => {
 
         paste = jasmine.createSpy('paste');
 
-        plugin.initialize(<IEditor>(<any>{
+        return <IEditor>(<any>{
             addDomEventHandler: addDomEventHandler,
             paste,
             getSelectionRange: (): Range => null,
@@ -50,7 +51,12 @@ describe('CopyPastePlugin paste', () => {
             getDocument: () => document,
             select: () => {},
             isFeatureEnabled: () => false,
-        }));
+            isDisposed: () => disposeResult,
+        });
+    }
+
+    beforeEach(() => {
+        plugin = new CopyPastePlugin({});
     });
 
     afterEach(() => {
@@ -62,16 +68,19 @@ describe('CopyPastePlugin paste', () => {
     });
 
     it('init and dispose', () => {
+        plugin.initialize(getEditor());
         expect(addDomEventHandler).toHaveBeenCalled();
         const parameter = addDomEventHandler.calls.argsFor(0)[0];
         expect(Object.keys(parameter)).toEqual(['paste', 'copy', 'cut']);
     });
 
     it('trigger paste event for html', () => {
+        plugin.initialize(getEditor());
         const items: ClipboardData = {
             rawHtml: '',
             text: '',
             image: null,
+            files: [],
             types: [],
             customValues: {},
         };
@@ -81,6 +90,25 @@ describe('CopyPastePlugin paste', () => {
 
         handler.paste(<any>{});
         expect(paste).toHaveBeenCalledWith(items);
+        expect(tempNode).toBeNull();
+    });
+
+    it('Editor disposed, do not handle.', () => {
+        plugin.initialize(getEditor(true /* disposeResult */));
+        const items: ClipboardData = {
+            rawHtml: '',
+            text: '',
+            image: null,
+            files: [],
+            types: [],
+            customValues: {},
+        };
+        spyOn(extractClipboardEvent, 'default').and.callFake((event, callback) => {
+            callback(items);
+        });
+
+        handler.paste(<any>{});
+        expect(paste).not.toHaveBeenCalled();
         expect(tempNode).toBeNull();
     });
 });
@@ -105,7 +133,25 @@ describe('CopyPastePlugin copy', () => {
                     handler = null;
                 };
             });
-        triggerPluginEvent = jasmine.createSpy('triggerPluginEvent');
+        triggerPluginEvent = jasmine
+            .createSpy('triggerPluginEvent')
+            .and.callFake(
+                (
+                    eventType: PluginEventType.BeforeCutCopy,
+                    data: Pick<
+                        BeforeCutCopyEvent,
+                        'eventDataCache' | 'rawEvent' | 'clonedRoot' | 'range' | 'isCut'
+                    >,
+                    broadcast?: boolean
+                ) => {
+                    return {
+                        clonedRoot: tempNode,
+                        range: <Range>{ collapsed: false },
+                        rawEvent: event as ClipboardEvent,
+                        isCut: false,
+                    };
+                }
+            );
         spyOn(addRangeToSelection, 'default');
 
         editor = <IEditor>(<any>{
@@ -113,7 +159,10 @@ describe('CopyPastePlugin copy', () => {
             triggerPluginEvent,
             getSelectionRange: () => <Range>{ collapsed: false },
             getContent: () => '<div>test</div><!--{"start":[0,0],"end":[0,1]}-->',
-            getCustomData: (key: string, getter: () => any) => getter(),
+            getCustomData: (key: string, getter: () => any) => {
+                tempNode = getter();
+                return tempNode;
+            },
             insertNode: (node: HTMLElement) => {
                 tempNode = node;
                 document.body.appendChild(node);

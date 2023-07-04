@@ -1,6 +1,8 @@
+import getObjectKeys from '../jsUtils/getObjectKeys';
 import safeInstanceOf from './safeInstanceOf';
 import { Browser } from './Browser';
 import { CreateElementData, KnownCreateElementDataIndex } from 'roosterjs-editor-types';
+import type { CompatibleKnownCreateElementDataIndex } from 'roosterjs-editor-types/lib/compatibleTypes';
 
 /**
  * All known CreateElementData used by roosterjs to create elements
@@ -20,7 +22,7 @@ export const KnownCreateElementData: Record<KnownCreateElementDataIndex, CreateE
     [KnownCreateElementDataIndex.CopyPasteTempDiv]: {
         tag: 'div',
         style:
-            'width: 1px; height: 1px; overflow: hidden; position: fixed; top: 0; left; 0; -webkit-user-select: text',
+            'width: 600px; height: 1px; overflow: hidden; position: fixed; top: 0; left; 0; -webkit-user-select: text',
         attributes: {
             contenteditable: 'true',
         },
@@ -31,8 +33,14 @@ export const KnownCreateElementData: Record<KnownCreateElementDataIndex, CreateE
         style: 'position: fixed; width: 0; height: 0',
     },
     [KnownCreateElementDataIndex.ImageEditWrapper]: {
-        tag: 'div',
-        style: 'width:100%;height:100%;position:relative;overflow:hidden',
+        tag: 'span',
+        style: 'max-width:100%;position:relative',
+        children: [
+            {
+                tag: 'div',
+                style: 'width:100%;height:100%;position:relative;overflow:hidden',
+            },
+        ],
     },
     [KnownCreateElementDataIndex.TableHorizontalResizer]: {
         tag: 'div',
@@ -54,6 +62,10 @@ export const KnownCreateElementData: Record<KnownCreateElementDataIndex, CreateE
         tag: 'div',
         style: 'position: fixed; cursor: all-scroll; user-select: none; border: 1px solid #808080',
     },
+    [KnownCreateElementDataIndex.EmptyLineFormatInSpan]: {
+        tag: 'div',
+        children: [{ tag: 'span', children: [{ tag: 'br' }] }],
+    },
 };
 
 /**
@@ -63,7 +75,10 @@ export const KnownCreateElementData: Record<KnownCreateElementDataIndex, CreateE
  * @returns The root DOM element just created
  */
 export default function createElement(
-    elementData: CreateElementData | KnownCreateElementDataIndex,
+    elementData:
+        | CreateElementData
+        | KnownCreateElementDataIndex
+        | CompatibleKnownCreateElementDataIndex,
     document: Document
 ): Element | null {
     if (typeof elementData == 'number') {
@@ -88,13 +103,13 @@ export default function createElement(
     }
 
     if (dataset && safeInstanceOf(result, 'HTMLElement')) {
-        Object.keys(dataset).forEach(datasetName => {
+        getObjectKeys(dataset).forEach(datasetName => {
             result.dataset[datasetName] = dataset[datasetName];
         });
     }
 
     if (attributes) {
-        Object.keys(attributes).forEach(attrName => {
+        getObjectKeys(attributes).forEach(attrName => {
             result.setAttribute(attrName, attributes[attrName]);
         });
     }

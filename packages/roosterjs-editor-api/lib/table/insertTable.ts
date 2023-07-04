@@ -1,4 +1,6 @@
-import { ChangeSource, IEditor, PositionType, TableFormat } from 'roosterjs-editor-types';
+import formatUndoSnapshot from '../utils/formatUndoSnapshot';
+import setBackgroundColor from '../format/setBackgroundColor';
+import { IEditor, PositionType, TableFormat } from 'roosterjs-editor-types';
 import { Position, VTable } from 'roosterjs-editor-dom';
 
 /**
@@ -17,9 +19,7 @@ export default function insertTable(
     format?: TableFormat
 ) {
     let document = editor.getDocument();
-    let fragment = document.createDocumentFragment();
     let table = document.createElement('table') as HTMLTableElement;
-    fragment.appendChild(table);
     table.cellSpacing = '0';
     table.cellPadding = '1';
     for (let i = 0; i < rows; i++) {
@@ -34,15 +34,23 @@ export default function insertTable(
     }
 
     editor.focus();
-    editor.addUndoSnapshot(() => {
-        let vtable = new VTable(table);
-        vtable.applyFormat(format);
-        vtable.writeBack();
-        editor.insertNode(fragment);
-        editor.runAsync(editor =>
-            editor.select(new Position(table, PositionType.Begin).normalize())
-        );
-    }, ChangeSource.Format);
+    formatUndoSnapshot(
+        editor,
+        () => {
+            const element = editor.getElementAtCursor();
+            if (element?.style.backgroundColor) {
+                setBackgroundColor(editor, 'transparent');
+            }
+            let vtable = new VTable(table);
+            vtable.applyFormat(format || {});
+            vtable.writeBack();
+            editor.insertNode(table);
+            editor.runAsync(editor =>
+                editor.select(new Position(table, PositionType.Begin).normalize())
+            );
+        },
+        'insertTable'
+    );
 }
 
 function getTableCellWidth(columns: number): string {

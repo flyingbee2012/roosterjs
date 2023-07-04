@@ -13,7 +13,9 @@ describe('TypeInContainerPlugin', () => {
     };
 
     beforeEach(() => {
-        runAsync = jasmine.createSpy('runAsync').and.callFake((callback: () => any) => callback());
+        runAsync = jasmine
+            .createSpy('runAsync')
+            .and.callFake((callback: (editor: IEditor) => any) => callback(editor));
         select = jasmine.createSpy('select');
         ensureTypeInContainer = jasmine.createSpy('ensureTypeInContainer');
         editor = <IEditor>(<any>{

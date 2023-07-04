@@ -1,5 +1,11 @@
-import { ChangeSource, DocumentCommand, IEditor, QueryScope } from 'roosterjs-editor-types';
-import { HtmlSanitizer, matchLink } from 'roosterjs-editor-dom';
+import { HtmlSanitizer, matchLink, wrap } from 'roosterjs-editor-dom';
+import {
+    ChangeSource,
+    DocumentCommand,
+    IEditor,
+    QueryScope,
+    SelectionRangeTypes,
+} from 'roosterjs-editor-types';
 
 // Regex matching Uri scheme
 const URI_REGEX = /^[a-zA-Z]+:/i;
@@ -42,6 +48,7 @@ function applyLinkPrefix(url: string): string {
  * When protocol is not specified, a best matched protocol will be predicted.
  * @param altText Optional alt text of the link, will be shown when hover on the link
  * @param displayText Optional display text for the link.
+ * @param target Optional display target for the link ("_blank"|"_self"|"_parent"|"_top"|"{framename}")
  * If specified, the display text of link will be replaced with this text.
  * If not specified and there wasn't a link, the link url will be used as display text.
  */
@@ -49,7 +56,8 @@ export default function createLink(
     editor: IEditor,
     link: string,
     altText?: string,
-    displayText?: string
+    displayText?: string,
+    target?: string
 ) {
     editor.focus();
     let url = (checkXss(link) || '').trim();
@@ -64,30 +72,56 @@ export default function createLink(
         let originalUrl = linkData ? linkData.originalUrl : url;
 
         editor.addUndoSnapshot(() => {
-            let range = editor.getSelectionRange();
-            let anchor: HTMLAnchorElement = null;
-            if (range && range.collapsed) {
-                anchor = getAnchorNodeAtCursor(editor);
+            const selection = editor.getSelectionRangeEx();
+            let anchor: HTMLAnchorElement | null = null;
+            if (selection.type === SelectionRangeTypes.Normal) {
+                const range = selection.ranges[0];
+                if (range && range.collapsed) {
+                    anchor = getAnchorNodeAtCursor(editor);
 
-                // If there is already a link, just change its href
-                if (anchor) {
-                    anchor.href = normalizedUrl;
-                    // Change text content if it is specified
-                    updateAnchorDisplayText(anchor, displayText);
+                    // If there is already a link, just change its href
+                    if (anchor) {
+                        anchor.href = normalizedUrl;
+                        // Change text content if it is specified
+                        updateAnchorDisplayText(anchor, displayText);
+                    } else {
+                        anchor = editor.getDocument().createElement('A') as HTMLAnchorElement;
+                        anchor.textContent = displayText || originalUrl;
+                        anchor.href = normalizedUrl;
+                        editor.insertNode(anchor);
+                    }
                 } else {
-                    anchor = editor.getDocument().createElement('A') as HTMLAnchorElement;
-                    anchor.textContent = displayText || originalUrl;
-                    anchor.href = normalizedUrl;
-                    editor.insertNode(anchor);
+                    // the selection is not collapsed, use browser execCommand
+                    editor
+                        .getDocument()
+                        .execCommand(DocumentCommand.CreateLink, false, normalizedUrl);
+                    const traverser = editor.getSelectionTraverser();
+
+                    let currentInline = traverser?.getNextInlineElement();
+
+                    // list for removing unwanted lines
+                    let deletionInlineList: Node[] = [];
+
+                    while (currentInline) {
+                        deletionInlineList.push(currentInline.getContainerNode());
+                        currentInline = traverser?.getNextInlineElement();
+                    }
+
+                    deletionInlineList.forEach(node => editor.deleteNode(node));
+
+                    anchor = getAnchorNodeAtCursor(editor);
+                    updateAnchorDisplayText(anchor, displayText);
                 }
-            } else {
-                // the selection is not collapsed, use browser execCommand
-                editor.getDocument().execCommand(DocumentCommand.CreateLink, false, normalizedUrl);
-                anchor = getAnchorNodeAtCursor(editor);
-                updateAnchorDisplayText(anchor, displayText);
+            } else if (selection.type === SelectionRangeTypes.ImageSelection) {
+                anchor = wrap(selection.image, 'A') as HTMLAnchorElement;
+                anchor.href = normalizedUrl;
             }
+
             if (altText && anchor) {
                 anchor.title = altText;
+            }
+            if (anchor) {
+                updateAnchorTarget(anchor, target);
             }
             return anchor;
         }, ChangeSource.CreateLink);
@@ -98,13 +132,21 @@ function getAnchorNodeAtCursor(editor: IEditor): HTMLAnchorElement {
     return editor.queryElements('a[href]', QueryScope.OnSelection)[0] as HTMLAnchorElement;
 }
 
-function updateAnchorDisplayText(anchor: HTMLAnchorElement, displayText: string) {
+function updateAnchorDisplayText(anchor: HTMLAnchorElement, displayText?: string) {
     if (displayText && anchor.textContent != displayText) {
         anchor.textContent = displayText;
     }
 }
 
-function checkXss(link: string): string {
+function updateAnchorTarget(anchor: HTMLAnchorElement, target?: string) {
+    if (target) {
+        anchor.target = target;
+    } else if (!target && anchor.getAttribute('target')) {
+        anchor.removeAttribute('target');
+    }
+}
+
+function checkXss(link: string): string | null {
     const sanitizer = new HtmlSanitizer();
     const a = document.createElement('a');
 

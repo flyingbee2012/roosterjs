@@ -1,11 +1,5 @@
 name: Build and Test
-on:
-    push:
-        branches-ignore:
-            - master
-    pull_request:
-        branches-ignore:
-            - master
+on: [push, pull_request]
 
 jobs:
     build:
@@ -19,10 +13,10 @@ jobs:
             - name: Set Node Version
               uses: actions/setup-node@v2
               with:
-                  node-version: 'v14.18.2'
+                  node-version: 'v18.16.0'
 
             - name: Install dependencies
-              run: npm install
+              run: yarn
 
             - name: Build
               run: npm run-script build:ci
@@ -37,10 +31,10 @@ jobs:
             - name: Set Node Version
               uses: actions/setup-node@v2
               with:
-                  node-version: 'v14.18.2'
+                  node-version: 'v18.16.0'
 
             - name: Install dependencies
-              run: npm install
+              run: yarn
 
             - name: Install Chrome
               uses: browser-actions/setup-chrome@latest
@@ -48,7 +42,7 @@ jobs:
             - name: Test with Chrome
               uses: GabrielBB/xvfb-action@v1
               with:
-                  run: npm run-script test:chrome
+                  run: npm run-script test
     test-on-firefox:
         runs-on: ubuntu-latest
         steps:
@@ -60,10 +54,10 @@ jobs:
             - name: Set Node Version
               uses: actions/setup-node@v2
               with:
-                  node-version: 'v14.18.2'
+                  node-version: 'v18.16.0'
 
             - name: Install dependencies
-              run: npm install
+              run: yarn
 
             - name: Install Firefox
               uses: browser-actions/setup-firefox@latest
@@ -71,4 +65,4 @@ jobs:
             - name: Test with Firefox
               uses: GabrielBB/xvfb-action@v1
               with:
-                  run: npm run-script test
+                  run: npm run-script test:firefox

@@ -1,6 +1,7 @@
 import {
     changeElementTag,
     ContentTraverser,
+    findClosestElementAncestor,
     getBlockElementAtNode,
     getNextLeafSibling,
     getPreviousLeafSibling,
@@ -29,10 +30,11 @@ export default function handleLineMerge(root: Node) {
     }
 
     if (blocks.length > 0) {
+        const blocksLength = blocks.length - 1;
         processBlock(blocks[0]);
-        processBlock(blocks[blocks.length - 1]);
+        processBlock(blocks[blocksLength]);
         checkAndAddBr(root, blocks[0], true /*isFirst*/);
-        checkAndAddBr(root, blocks[blocks.length - 1], false /*isFirst*/);
+        checkAndAddBr(root, blocks[blocksLength], false /*isFirst*/, blocks[0]);
     }
 }
 
@@ -40,31 +42,60 @@ function processBlock(block: { start: Node; end: Node }) {
     const { start, end } = block;
 
     if (start == end && getTagOfNode(start) == 'DIV') {
-        const node = changeElementTag(start as HTMLElement, 'SPAN');
+        const node = changeElementTag(start as HTMLElement, 'SPAN') as Node;
         block.start = node;
         block.end = node;
 
-        if (getTagOfNode(node.lastChild) == 'BR') {
+        if (node && node.lastChild && getTagOfNode(node.lastChild) == 'BR') {
             node.removeChild(node.lastChild);
         }
     } else if (getTagOfNode(end) == 'BR') {
-        const node = end.ownerDocument.createTextNode('');
-        end.parentNode?.insertBefore(node, end);
-        block.end = node;
-        end.parentNode?.removeChild(end);
+        const node = end.ownerDocument?.createTextNode('');
+        if (node) {
+            end.parentNode?.insertBefore(node, end);
+            block.end = node;
+            end.parentNode?.removeChild(end);
+        }
     }
 }
 
-function checkAndAddBr(root: Node, block: { start: Node; end: Node }, isFirst: boolean) {
+function checkAndAddBr(
+    root: Node,
+    block: { start: Node; end: Node },
+    isFirst: boolean,
+    firstBlock?: { start: Node; end: Node }
+) {
     const blockElement = getBlockElementAtNode(root, block.start);
     const sibling = isFirst
         ? getNextLeafSibling(root, block.end)
         : getPreviousLeafSibling(root, block.start);
 
+    if (!sibling) {
+        return;
+    }
+
     if (blockElement?.contains(sibling)) {
-        (isFirst ? block.end : block.start).parentNode?.insertBefore(
-            block.start.ownerDocument.createElement('br'),
-            isFirst ? block.end.nextSibling : block.start
-        );
+        const br = block.start.ownerDocument?.createElement('br');
+        if (br) {
+            const blockToUse = isFirst ? block.end : block.start;
+            blockToUse.parentNode?.insertBefore(br, isFirst ? block.end.nextSibling : block.start);
+        }
+    } else if (
+        firstBlock &&
+        firstBlock.end == firstBlock.start &&
+        getTagOfNode(firstBlock.end) == 'SPAN'
+    ) {
+        // If the first block and the last block are Siblings, add a BR before so the only two
+        // lines that are being pasted are not merged.
+        const previousSibling = getPreviousLeafSibling(root, block.start);
+        if (
+            firstBlock.end.contains(previousSibling) &&
+            !findClosestElementAncestor(block.start, root, 'li')
+        ) {
+            const br = block.start.ownerDocument?.createElement('br');
+            if (br) {
+                block.start.parentNode?.insertBefore(br, block.start);
+            }
+        }
     }
 }

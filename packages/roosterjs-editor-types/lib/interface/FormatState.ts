@@ -1,4 +1,5 @@
 import ModeIndependentColor from './ModeIndependentColor';
+import TableFormat from './TableFormat';
 
 /**
  * Format states that can have pending state.
@@ -59,9 +60,24 @@ export interface ElementBasedFormatState {
     isBlockQuote?: boolean;
 
     /**
+     * Whether the text is in Code element
+     */
+    isCodeInline?: boolean;
+
+    /**
+     * Whether the text is in Code block
+     */
+    isCodeBlock?: boolean;
+
+    /**
      * Whether unlink command can be called to the text
      */
     canUnlink?: boolean;
+
+    /**
+     * Whether the selected text is multiline
+     */
+    isMultilineSelection?: boolean;
 
     /**
      * Whether add image alt text command can be called to the text
@@ -72,6 +88,26 @@ export interface ElementBasedFormatState {
      * Header level (0-6, 0 means no header)
      */
     headerLevel?: number;
+
+    /**
+     * Whether the cursor is in table
+     */
+    isInTable?: boolean;
+
+    /**
+     * Format of table, if there is table at cursor position
+     */
+    tableFormat?: TableFormat;
+
+    /**
+     * If there is a table, whether the table has header row
+     */
+    tableHasHeader?: boolean;
+
+    /**
+     * Whether we can execute table cell merge operation
+     */
+    canMergeTableCell?: boolean;
 }
 
 /**
@@ -107,6 +143,31 @@ export interface StyleBasedFormatState {
      * Mode independent background color for dark mode
      */
     textColors?: ModeIndependentColor;
+
+    /**
+     * Line height
+     */
+    lineHeight?: string;
+
+    /**
+     * Margin Top
+     */
+    marginTop?: string;
+
+    /**
+     * Margin Bottom
+     */
+    marginBottom?: string;
+
+    /**
+     * Text Align
+     */
+    textAlign?: string;
+
+    /**
+     * Direction of the element ('ltr' or 'rtl')
+     */
+    direction?: string;
 }
 
 /**
@@ -131,4 +192,14 @@ export default interface FormatState
     extends PendableFormatState,
         ElementBasedFormatState,
         StyleBasedFormatState,
-        EditorUndoState {}
+        EditorUndoState {
+    /**
+     * Whether editor is in dark mode
+     */
+    isDarkMode?: boolean;
+
+    /**
+     * Current zoom scale of editor
+     */
+    zoomScale?: number;
+}

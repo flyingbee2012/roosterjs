@@ -23,16 +23,17 @@ export default function resizeByPercentage(
     const editInfo = getEditInfoFromImage(image);
 
     if (!isResizedTo(image, percentage)) {
-        loadImage(image, editInfo.src, () => {
-            if (!editor.isDisposed() && editor.contains(image)) {
+        loadImage(image, image.src, () => {
+            if (!editor.isDisposed() && editor.contains(image) && editInfo) {
                 const lastSrc = image.getAttribute('src');
                 const { width, height } = getTargetSizeByPercentage(editInfo, percentage);
                 editInfo.widthPx = Math.max(width, minWidth);
                 editInfo.heightPx = Math.max(height, minHeight);
 
                 editor.addUndoSnapshot(() => {
-                    applyChange(editor, image, editInfo, lastSrc, true /*wasResized*/);
+                    applyChange(editor, image, editInfo, lastSrc || '', true /*wasResized*/);
                 }, ChangeSource.ImageResize);
+                editor.select(image);
             }
         });
     }

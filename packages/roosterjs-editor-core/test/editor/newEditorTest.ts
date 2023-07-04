@@ -52,6 +52,8 @@ describe('Editor', () => {
             'MouseUp',
             'CopyPaste',
             'Entity',
+            'ImageSelection',
+            'NormalizeTable',
             'Lifecycle',
         ]);
 
@@ -62,6 +64,7 @@ describe('Editor', () => {
             stopPrintableKeyboardEventPropagation: true,
             contextMenuProviders: [],
             tableSelectionRange: null,
+            imageSelectionRange: null,
         });
         if (!Browser.isChrome) {
             expect(core.edit).toEqual({
@@ -69,16 +72,16 @@ describe('Editor', () => {
             });
         }
         expect(core.entity).toEqual({
-            knownEntityElements: [],
-            shadowEntityCache: {},
+            entityMap: {},
         });
         expect(core.lifecycle.customData).toEqual({});
         expect(core.lifecycle.isDarkMode).toBeFalse();
-        expect(core.lifecycle.onExternalContentTransform).toBeUndefined();
+        expect(core.lifecycle.onExternalContentTransform).toBeNull();
         expect(core.lifecycle.defaultFormat).toBeDefined();
         expect(core.pendingFormatState).toEqual({
             pendableFormatPosition: null,
             pendableFormatState: null,
+            pendableFormatSpan: null,
         });
         expect(core.undo.isRestoring).toBeFalse();
         expect(core.undo.hasNewContent).toBeFalse();
@@ -158,6 +161,8 @@ describe('Editor', () => {
             'test mouse up',
             'CopyPaste',
             'Entity',
+            'ImageSelection',
+            'NormalizeTable',
             'Lifecycle',
         ]);
 
@@ -168,6 +173,7 @@ describe('Editor', () => {
             stopPrintableKeyboardEventPropagation: false,
             contextMenuProviders: [],
             tableSelectionRange: null,
+            imageSelectionRange: null,
         });
         if (!Browser.isChrome) {
             expect(core.edit).toEqual({
@@ -175,8 +181,7 @@ describe('Editor', () => {
             });
         }
         expect(core.entity).toEqual({
-            knownEntityElements: [],
-            shadowEntityCache: {},
+            entityMap: {},
         });
         expect(core.lifecycle.customData).toEqual({});
         expect(core.lifecycle.isDarkMode).toBeTrue();
@@ -186,6 +191,7 @@ describe('Editor', () => {
         expect(core.pendingFormatState).toEqual({
             pendableFormatPosition: null,
             pendableFormatState: null,
+            pendableFormatSpan: null,
         });
         expect(core.undo.isRestoring).toBeFalse();
         expect(core.undo.hasNewContent).toBeFalse();
@@ -196,5 +202,17 @@ describe('Editor', () => {
         expect(core.undo.snapshotsService.canUndoAutoComplete).toBeDefined();
         expect(core.undo.snapshotsService.clearRedo).toBeDefined();
         expect(core.undo.snapshotsService.move).toBeDefined();
+    });
+
+    it('create Editor with initial content as a table with colgroup', () => {
+        const div = document.createElement('div');
+        const editor = new Editor(div, {
+            initialContent:
+                '<table><thead><colgroup><col width="100" ><col width="100" ></thead><tbody><tr><td>col 1</td><td>col 2</td></tr><tr><td>col 1</td><td>col 2</td></tr></tbody></table>',
+        });
+
+        expect(editor.getContent()).toEqual(
+            '<table><thead><colgroup><col width="100"><col width="100"></colgroup></thead><tbody><tr><td>col 1</td><td>col 2</td></tr><tr><td>col 1</td><td>col 2</td></tr></tbody></table>'
+        );
     });
 });

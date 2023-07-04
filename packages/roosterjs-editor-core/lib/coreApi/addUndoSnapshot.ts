@@ -1,13 +1,18 @@
-import { Position } from 'roosterjs-editor-dom';
+import { EntityState } from 'roosterjs-editor-types';
+import { getSelectionPath, Position } from 'roosterjs-editor-dom';
 import {
     AddUndoSnapshot,
     ChangeSource,
+    ContentChangedData,
     ContentChangedEvent,
+    ContentMetadata,
     EditorCore,
     NodePosition,
     PluginEventType,
-    GetContentMode,
+    SelectionRangeEx,
+    SelectionRangeTypes,
 } from 'roosterjs-editor-types';
+import type { CompatibleChangeSource } from 'roosterjs-editor-types/lib/compatibleTypes';
 
 /**
  * @internal
@@ -17,27 +22,26 @@ import {
  * @param callback The editing callback, accepting current selection start and end position, returns an optional object used as the data field of ContentChangedEvent.
  * @param changeSource The ChangeSource string of ContentChangedEvent. @default ChangeSource.Format. Set to null to avoid triggering ContentChangedEvent
  * @param canUndoByBackspace True if this action can be undone when user press Backspace key (aka Auto Complete).
+ * @param additionalData @optional parameter to provide additional data related to the ContentChanged Event.
  */
 export const addUndoSnapshot: AddUndoSnapshot = (
     core: EditorCore,
-    callback: (start: NodePosition, end: NodePosition) => any,
-    changeSource: ChangeSource | string,
-    canUndoByBackspace: boolean
+    callback: ((start: NodePosition | null, end: NodePosition | null) => any) | null,
+    changeSource: ChangeSource | CompatibleChangeSource | string | null,
+    canUndoByBackspace: boolean,
+    additionalData?: ContentChangedData
 ) => {
     const undoState = core.undo;
     const isNested = undoState.isNested;
-    const isShadowEdit = !!core.lifecycle.shadowEditFragment;
     let data: any;
 
     if (!isNested) {
         undoState.isNested = true;
 
-        if (!isShadowEdit) {
-            undoState.snapshotsService.addSnapshot(
-                core.api.getContent(core, GetContentMode.RawHTMLWithSelection),
-                canUndoByBackspace
-            );
-            undoState.hasNewContent = false;
+        // When there is getEntityState, it means this is triggered by an entity change.
+        // So if HTML content is not changed (hasNewContent is false), no need to add another snapshot before change
+        if (core.undo.hasNewContent || !additionalData?.getEntityState || !callback) {
+            addUndoSnapshotInternal(core, canUndoByBackspace, additionalData?.getEntityState?.());
         }
     }
 
@@ -49,12 +53,9 @@ export const addUndoSnapshot: AddUndoSnapshot = (
                 range && Position.getEnd(range).normalize()
             );
 
-            if (!isNested && !isShadowEdit) {
-                undoState.snapshotsService.addSnapshot(
-                    core.api.getContent(core, GetContentMode.RawHTMLWithSelection),
-                    false /*isAutoCompleteSnapshot*/
-                );
-                undoState.hasNewContent = false;
+            if (!isNested) {
+                const entityStates = additionalData?.getEntityState?.();
+                addUndoSnapshotInternal(core, false /*isAutoCompleteSnapshot*/, entityStates);
             }
         }
     } finally {
@@ -68,6 +69,7 @@ export const addUndoSnapshot: AddUndoSnapshot = (
             eventType: PluginEventType.ContentChanged,
             source: changeSource,
             data: data,
+            additionalData,
         };
         core.api.triggerEvent(core, event, true /*broadcast*/);
     }
@@ -81,3 +83,56 @@ export const addUndoSnapshot: AddUndoSnapshot = (
         }
     }
 };
+
+function addUndoSnapshotInternal(
+    core: EditorCore,
+    canUndoByBackspace: boolean,
+    entityStates?: EntityState[]
+) {
+    if (!core.lifecycle.shadowEditFragment) {
+        const rangeEx = core.api.getSelectionRangeEx(core);
+        const isDarkMode = core.lifecycle.isDarkMode;
+        const metadata = createContentMetadata(core.contentDiv, rangeEx, isDarkMode) || null;
+
+        core.undo.snapshotsService.addSnapshot(
+            {
+                html: core.contentDiv.innerHTML,
+                metadata,
+                knownColors: core.darkColorHandler?.getKnownColorsCopy() || [],
+                entityStates,
+            },
+            canUndoByBackspace
+        );
+        core.undo.hasNewContent = false;
+    }
+}
+
+function createContentMetadata(
+    root: HTMLElement,
+    rangeEx: SelectionRangeEx,
+    isDarkMode: boolean
+): ContentMetadata | undefined {
+    switch (rangeEx?.type) {
+        case SelectionRangeTypes.TableSelection:
+            return {
+                type: SelectionRangeTypes.TableSelection,
+                tableId: rangeEx.table.id,
+                isDarkMode: !!isDarkMode,
+                ...rangeEx.coordinates!,
+            };
+        case SelectionRangeTypes.ImageSelection:
+            return {
+                type: SelectionRangeTypes.ImageSelection,
+                imageId: rangeEx.image.id,
+                isDarkMode: !!isDarkMode,
+            };
+        case SelectionRangeTypes.Normal:
+            return {
+                type: SelectionRangeTypes.Normal,
+                isDarkMode: !!isDarkMode,
+                start: [],
+                end: [],
+                ...(getSelectionPath(root, rangeEx.ranges[0]) || {}),
+            };
+    }
+}

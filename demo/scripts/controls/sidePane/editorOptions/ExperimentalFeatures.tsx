@@ -1,20 +1,23 @@
 import * as React from 'react';
 import BuildInPluginState from '../../BuildInPluginState';
 import { ExperimentalFeatures } from 'roosterjs-editor-types';
+import { getObjectKeys } from 'roosterjs-editor-dom';
 
 export interface ExperimentalFeaturesProps {
     state: ExperimentalFeatures[];
     resetState: (callback: (state: BuildInPluginState) => void, resetEditor: boolean) => void;
 }
 
-const FeatureNames: { [key in ExperimentalFeatures]?: string } = {
-    [ExperimentalFeatures.SingleDirectionResize]: 'Resize an image horizontally or vertically',
-    [ExperimentalFeatures.PasteWithLinkPreview]: 'Try retrieve link preview information when paste',
-    [ExperimentalFeatures.ImageRotate]: 'Rotate an inline image',
-    [ExperimentalFeatures.ImageCrop]: 'Crop an inline image',
-    [ExperimentalFeatures.AlwaysApplyDefaultFormat]: 'Apply the default format to all elements',
-    [ExperimentalFeatures.ConvertSingleImageBody]:
-        'Paste Html instead of image when Html have one Img Children (Animated Image Paste)',
+const FeatureNames: Partial<Record<ExperimentalFeatures, string>> = {
+    [ExperimentalFeatures.TabKeyTextFeatures]: 'Additional functionality to Tab Key',
+    [ExperimentalFeatures.AutoFormatList]:
+        'Trigger formatting by a especial characters. Ex: (A), 1. i).',
+    [ExperimentalFeatures.ReuseAllAncestorListElements]:
+        "Reuse ancestor list elements even if they don't match the types from the list item.",
+    [ExperimentalFeatures.DeleteTableWithBackspace]:
+        'Delete a table selected with the table selector pressing Backspace key',
+    [ExperimentalFeatures.InlineEntityReadOnlyDelimiters]:
+        'Add read entities around read only entities to handle browser edge cases.',
 };
 
 export default class ExperimentalFeaturesPane extends React.Component<
@@ -22,19 +25,13 @@ export default class ExperimentalFeaturesPane extends React.Component<
     {}
 > {
     render() {
-        return (
-            <>
-                {Object.keys(FeatureNames).map((name: keyof typeof FeatureNames) =>
-                    this.renderFeature(name)
-                )}
-            </>
-        );
+        return <>{getObjectKeys(FeatureNames).map(name => this.renderFeature(name))}</>;
     }
 
-    private renderFeature(name: ExperimentalFeatures): JSX.Element {
+    private renderFeature(name: keyof typeof FeatureNames): JSX.Element {
         let checked = this.props.state.indexOf(name) >= 0;
         return (
-            <div>
+            <div key={name}>
                 <input
                     type="checkbox"
                     checked={checked}
@@ -46,7 +43,7 @@ export default class ExperimentalFeaturesPane extends React.Component<
         );
     }
 
-    private onClick = (name: ExperimentalFeatures) => {
+    private onClick = (name: keyof typeof FeatureNames) => {
         this.props.resetState(state => {
             let checkbox = document.getElementById(name) as HTMLInputElement;
             let index = state.experimentalFeatures.indexOf(name);

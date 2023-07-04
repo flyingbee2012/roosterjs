@@ -7,6 +7,8 @@ import {
     InsertOption,
     NodeType,
     PositionType,
+    NodePosition,
+    RegionType,
 } from 'roosterjs-editor-types';
 import {
     createRange,
@@ -19,12 +21,15 @@ import {
     toArray,
     wrap,
     adjustInsertPosition,
+    getRegionsFromRange,
+    splitTextNode,
+    splitParentNode,
 } from 'roosterjs-editor-dom';
 
 function getInitialRange(
     core: EditorCore,
     option: InsertOption
-): { range: Range; rangeToRestore: Range } {
+): { range: Range | null; rangeToRestore: Range | null } {
     // Selection start replaces based on the current selection.
     // Range inserts based on a provided range.
     // Both have the potential to use the current selection to restore cursor position
@@ -47,12 +52,17 @@ function getInitialRange(
  * @param core The EditorCore object. No op if null.
  * @param option An insert option object to specify how to insert the node
  */
-export const insertNode: InsertNode = (core: EditorCore, node: Node, option: InsertOption) => {
+export const insertNode: InsertNode = (
+    core: EditorCore,
+    node: Node,
+    option: InsertOption | null
+) => {
     option = option || {
         position: ContentPosition.SelectionStart,
         insertOnNewLine: false,
         updateCursor: true,
         replaceSelection: true,
+        insertToRegionRoot: false,
     };
     let contentDiv = core.contentDiv;
 
@@ -61,7 +71,7 @@ export const insertNode: InsertNode = (core: EditorCore, node: Node, option: Ins
     }
 
     if (option.position == ContentPosition.Outside) {
-        contentDiv.parentNode.insertBefore(node, contentDiv.nextSibling);
+        contentDiv.parentNode?.insertBefore(node, contentDiv.nextSibling);
         return true;
     }
 
@@ -70,12 +80,15 @@ export const insertNode: InsertNode = (core: EditorCore, node: Node, option: Ins
         node,
         true /*includeSelf*/,
         () => {
+            if (!option) {
+                return;
+            }
             switch (option.position) {
                 case ContentPosition.Begin:
                 case ContentPosition.End: {
                     let isBegin = option.position == ContentPosition.Begin;
                     let block = getFirstLastBlockElement(contentDiv, isBegin);
-                    let insertedNode: Node | Node[];
+                    let insertedNode: Node | Node[] | undefined;
                     if (block) {
                         let refNode = isBegin ? block.getStartNode() : block.getEndNode();
                         if (
@@ -90,12 +103,12 @@ export const insertNode: InsertNode = (core: EditorCore, node: Node, option: Ins
                                 // if the node to be inserted is DocumentFragment, use its childNodes as insertedNode
                                 // because insertBefore() returns an empty DocumentFragment
                                 insertedNode = toArray(node.childNodes);
-                                refNode.parentNode.insertBefore(
+                                refNode.parentNode?.insertBefore(
                                     node,
                                     isBegin ? refNode : refNode.nextSibling
                                 );
                             } else {
-                                insertedNode = refNode.parentNode.insertBefore(
+                                insertedNode = refNode.parentNode?.insertBefore(
                                     node,
                                     isBegin ? refNode : refNode.nextSibling
                                 );
@@ -145,28 +158,35 @@ export const insertNode: InsertNode = (core: EditorCore, node: Node, option: Ins
                         range.deleteContents();
                     }
 
-                    let pos = Position.getStart(range);
-                    let blockElement: BlockElement;
+                    let pos: NodePosition = Position.getStart(range);
+                    let blockElement: BlockElement | null;
 
-                    if (
+                    if (option.insertOnNewLine && option.insertToRegionRoot) {
+                        pos = adjustInsertPositionRegionRoot(core, range, pos);
+                    } else if (
                         option.insertOnNewLine &&
                         (blockElement = getBlockElementAtNode(contentDiv, pos.normalize().node))
                     ) {
-                        pos = new Position(blockElement.getEndNode(), PositionType.After);
+                        pos = adjustInsertPositionNewLine(blockElement, core, pos);
                     } else {
                         pos = adjustInsertPosition(contentDiv, node, pos, range);
                     }
 
                     let nodeForCursor =
                         node.nodeType == NodeType.DocumentFragment ? node.lastChild : node;
+
                     range = createRange(pos);
                     range.insertNode(node);
+
                     if (option.updateCursor && nodeForCursor) {
                         rangeToRestore = createRange(
                             new Position(nodeForCursor, PositionType.After).normalize()
                         );
                     }
-                    core.api.selectRange(core, rangeToRestore);
+
+                    if (rangeToRestore) {
+                        core.api.selectRange(core, rangeToRestore);
+                    }
 
                     break;
             }
@@ -176,3 +196,38 @@ export const insertNode: InsertNode = (core: EditorCore, node: Node, option: Ins
 
     return true;
 };
+
+function adjustInsertPositionRegionRoot(core: EditorCore, range: Range, position: NodePosition) {
+    const region = getRegionsFromRange(core.contentDiv, range, RegionType.Table)[0];
+    let node: Node | null = position.node;
+
+    if (region) {
+        if (node.nodeType == NodeType.Text && !position.isAtEnd) {
+            node = splitTextNode(node as Text, position.offset, true /*returnFirstPart*/);
+        }
+
+        if (node != region.rootNode) {
+            while (node && node.parentNode != region.rootNode) {
+                splitParentNode(node, false /*splitBefore*/);
+                node = node.parentNode;
+            }
+        }
+
+        if (node) {
+            position = new Position(node, PositionType.After);
+        }
+    }
+
+    return position;
+}
+
+function adjustInsertPositionNewLine(blockElement: BlockElement, core: EditorCore, pos: Position) {
+    let tempPos = new Position(blockElement.getEndNode(), PositionType.After);
+    if (safeInstanceOf(tempPos.node, 'HTMLTableRowElement')) {
+        const div = core.contentDiv.ownerDocument.createElement('div');
+        const range = createRange(pos);
+        range.insertNode(div);
+        tempPos = new Position(div, PositionType.Begin);
+    }
+    return tempPos;
+}

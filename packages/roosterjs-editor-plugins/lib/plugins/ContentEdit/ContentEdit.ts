@@ -1,4 +1,5 @@
 import getAllFeatures from './getAllFeatures';
+import { getObjectKeys } from 'roosterjs-editor-dom';
 import {
     ContentEditFeatureSettings,
     EditorPlugin,
@@ -20,6 +21,8 @@ import {
  * 8. Manage list style
  */
 export default class ContentEdit implements EditorPlugin {
+    private editor: IEditor | undefined = undefined;
+    private features: GenericContentEditFeature<PluginEvent>[] = [];
     /**
      * Create instance of ContentEdit plugin
      * @param settingsOverride An optional feature set to override default feature settings
@@ -42,29 +45,36 @@ export default class ContentEdit implements EditorPlugin {
      * @param editor The editor instance
      */
     initialize(editor: IEditor): void {
-        const features: GenericContentEditFeature<PluginEvent>[] = [];
+        this.editor = editor;
         const allFeatures = getAllFeatures();
-
-        Object.keys(allFeatures).forEach((key: keyof typeof allFeatures) => {
+        getObjectKeys(allFeatures).forEach(key => {
             const feature = allFeatures[key];
             const hasSettingForKey =
                 this.settingsOverride && this.settingsOverride[key] !== undefined;
 
             if (
-                (hasSettingForKey && this.settingsOverride[key]) ||
+                (hasSettingForKey && this.settingsOverride?.[key]) ||
                 (!hasSettingForKey && !feature.defaultDisabled)
             ) {
-                features.push(feature);
+                this.features.push(feature);
             }
         });
+        this.features = this.features.concat(this.additionalFeatures || []);
+        this.features.forEach(feature => this.editor?.addContentEditFeature(feature));
+    }
 
-        features
-            .concat(this.additionalFeatures || [])
-            .forEach(feature => editor.addContentEditFeature(feature));
+    private disposeFeatures() {
+        if (this.editor) {
+            this.features.forEach(feature => this.editor!.removeContentEditFeature(feature));
+        }
+        this.features = [];
     }
 
     /**
      * Dispose this plugin
      */
-    dispose(): void {}
+    dispose(): void {
+        this.disposeFeatures();
+        this.editor = undefined;
+    }
 }

@@ -1,30 +1,53 @@
-import { ChangeSource, IEditor, PositionType, TableOperation } from 'roosterjs-editor-types';
+import formatUndoSnapshot from '../utils/formatUndoSnapshot';
+import { IEditor, PositionType, SelectionRangeTypes, TableOperation } from 'roosterjs-editor-types';
 import { VTable } from 'roosterjs-editor-dom';
+import type { CompatibleTableOperation } from 'roosterjs-editor-types/lib/compatibleTypes';
 
 /**
  * Edit table with given operation. If there is no table at cursor then no op.
  * @param editor The editor instance
  * @param operation Table operation
  */
-export default function editTable(editor: IEditor, operation: TableOperation) {
+export default function editTable(
+    editor: IEditor,
+    operation: TableOperation | CompatibleTableOperation
+) {
     let td = editor.getElementAtCursor('TD,TH') as HTMLTableCellElement;
     if (td) {
-        editor.addUndoSnapshot((start, end) => {
-            let vtable = new VTable(td);
-            vtable.edit(operation);
-            vtable.writeBack();
-            editor.focus();
+        formatUndoSnapshot(
+            editor,
+            () => {
+                let vtable = new VTable(td);
 
-            let cellToSelect = calculateCellToSelect(operation, vtable.row, vtable.col);
-            editor.select(
-                vtable.getCell(cellToSelect.newRow, cellToSelect.newCol).td,
-                PositionType.Begin
-            );
-        }, ChangeSource.Format);
+                saveTableSelection(editor, vtable);
+                vtable.edit(operation);
+                vtable.writeBack(false /** skipApplyFormat */, editor.getDarkColorHandler());
+                editor.transformToDarkColor(vtable.table);
+
+                editor.focus();
+                if (isUndefined(vtable.row) || isUndefined(vtable.col)) {
+                    return;
+                }
+                let { newCol, newRow } = calculateCellToSelect(operation, vtable.row, vtable.col);
+                const newTd = vtable.getCell(newRow, newCol).td;
+                if (newTd) {
+                    editor.select(newTd, PositionType.Begin);
+                }
+            },
+            'editTable'
+        );
     }
 }
 
-function calculateCellToSelect(operation: TableOperation, currentRow: number, currentCol: number) {
+function isUndefined(n: number | undefined): n is undefined {
+    return n == undefined;
+}
+
+function calculateCellToSelect(
+    operation: TableOperation | CompatibleTableOperation,
+    currentRow: number,
+    currentCol: number
+) {
     let newRow = currentRow;
     let newCol = currentCol;
     switch (operation) {
@@ -48,4 +71,11 @@ function calculateCellToSelect(operation: TableOperation, currentRow: number, cu
         newRow,
         newCol,
     };
+}
+
+function saveTableSelection(editor: IEditor, vtable: VTable) {
+    const selection = editor.getSelectionRangeEx();
+    if (selection && selection.type === SelectionRangeTypes.TableSelection) {
+        vtable.selection = selection.coordinates ?? null;
+    }
 }

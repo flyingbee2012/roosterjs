@@ -1,11 +1,12 @@
-import { PendableFormatCommandMap, PendableFormatNames } from 'roosterjs-editor-dom';
+import formatUndoSnapshot from './formatUndoSnapshot';
+import { getObjectKeys, PendableFormatCommandMap, PendableFormatNames } from 'roosterjs-editor-dom';
 import {
-    ChangeSource,
     DocumentCommand,
     IEditor,
     PluginEventType,
     SelectionRangeTypes,
 } from 'roosterjs-editor-types';
+import type { CompatibleDocumentCommand } from 'roosterjs-editor-types/lib/compatibleTypes';
 
 /**
  * @internal
@@ -17,18 +18,22 @@ import {
  * @param doWorkaroundForList Optional, set to true to do workaround for list in order to keep current format.
  * Default value is false.
  */
-export default function execCommand(editor: IEditor, command: DocumentCommand) {
+export default function execCommand(
+    editor: IEditor,
+    command: DocumentCommand | CompatibleDocumentCommand,
+    apiName?: string
+) {
     editor.focus();
 
-    let formatter = () => editor.getDocument().execCommand(command, false, null);
+    let formatter = () => editor.getDocument().execCommand(command, false, undefined);
 
     let selection = editor.getSelectionRangeEx();
     if (selection && selection.areAllCollapsed) {
         editor.addUndoSnapshot();
         const formatState = editor.getPendableFormatState(false /* forceGetStateFromDom */);
         formatter();
-        const formatName = Object.keys(PendableFormatCommandMap).filter(
-            (x: PendableFormatNames) => PendableFormatCommandMap[x] == command
+        const formatName = getObjectKeys(PendableFormatCommandMap).filter(
+            x => PendableFormatCommandMap[x] == command
         )[0] as PendableFormatNames;
 
         if (formatName) {
@@ -38,22 +43,23 @@ export default function execCommand(editor: IEditor, command: DocumentCommand) {
             });
         }
     } else {
-        editor.addUndoSnapshot(() => {
-            let tempRange: Range;
-            selection.ranges.forEach(range => {
-                if (selection.type == SelectionRangeTypes.TableSelection) {
-                    editor.select(range);
+        formatUndoSnapshot(
+            editor,
+            () => {
+                const needToSwitchSelection = selection.type != SelectionRangeTypes.Normal;
+
+                selection.ranges.forEach(range => {
+                    if (needToSwitchSelection) {
+                        editor.select(range);
+                    }
+                    formatter();
+                });
+
+                if (needToSwitchSelection) {
+                    editor.select(selection);
                 }
-
-                formatter();
-
-                tempRange = range;
-            });
-
-            if (tempRange && selection.type == SelectionRangeTypes.TableSelection) {
-                tempRange.collapse();
-                editor.select(tempRange);
-            }
-        }, ChangeSource.Format);
+            },
+            apiName
+        );
     }
 }

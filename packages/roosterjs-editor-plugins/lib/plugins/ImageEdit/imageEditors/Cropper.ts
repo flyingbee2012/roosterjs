@@ -1,4 +1,4 @@
-import DragAndDropContext, { X, Y } from '../types/DragAndDropContext';
+import DragAndDropContext, { DNDDirectionX, DnDDirectionY } from '../types/DragAndDropContext';
 import DragAndDropHandler from '../../../pluginUtils/DragAndDropHandler';
 import { CreateElementData } from 'roosterjs-editor-types';
 import { CropInfo } from '../types/ImageEditInfo';
@@ -7,8 +7,8 @@ import { rotateCoordinate } from './Resizer';
 
 const CROP_HANDLE_SIZE = 22;
 const CROP_HANDLE_WIDTH = 7;
-const Xs: X[] = ['w', 'e'];
-const Ys: Y[] = ['s', 'n'];
+const Xs: DNDDirectionX[] = ['w', 'e'];
+const Ys: DnDDirectionY[] = ['s', 'n'];
 const ROTATION: Record<string, number> = {
     sw: 0,
     nw: 90,
@@ -37,7 +37,12 @@ export const Cropper: DragAndDropHandler<DragAndDropContext, CropInfo> = {
         const widthPercent = 1 - leftPercent - rightPercent;
         const heightPercent = 1 - topPercent - bottomPercent;
 
-        if (widthPercent > 0 && heightPercent > 0) {
+        if (
+            widthPercent > 0 &&
+            heightPercent > 0 &&
+            minWidth !== undefined &&
+            minHeight !== undefined
+        ) {
             const fullWidth = widthPx / widthPercent;
             const fullHeight = heightPx / heightPercent;
             const newLeft =
@@ -100,13 +105,13 @@ export function getCropHTML(): CreateElementData[] {
         className: ImageEditElementClass.CropContainer,
         children: [],
     };
-
-    Xs.forEach(x => Ys.forEach(y => containerHTML.children.push(getCropHTMLInternal(x, y))));
-
+    if (containerHTML) {
+        Xs.forEach(x => Ys.forEach(y => containerHTML.children?.push(getCropHTMLInternal(x, y))));
+    }
     return [containerHTML, overlayHTML, overlayHTML, overlayHTML, overlayHTML];
 }
 
-function getCropHTMLInternal(x: X, y: Y): CreateElementData {
+function getCropHTMLInternal(x: DNDDirectionX, y: DnDDirectionY): CreateElementData {
     const leftOrRight = x == 'w' ? 'left' : 'right';
     const topOrBottom = y == 'n' ? 'top' : 'bottom';
     const rotation = ROTATION[y + x];

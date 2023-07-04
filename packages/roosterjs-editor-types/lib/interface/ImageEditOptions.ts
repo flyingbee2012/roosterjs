@@ -1,3 +1,7 @@
+import ModeIndependentColor from './ModeIndependentColor';
+import { ImageEditOperation } from '../enum/ImageEditOperation';
+import type { CompatibleImageEditOperation } from '../compatibleEnum/ImageEditOperation';
+
 /**
  * Options for ImageEdit plugin
  */
@@ -6,7 +10,7 @@ export default interface ImageEditOptions {
      * Color of resize/rotate border, handle and icon
      * @default #DB626C
      */
-    borderColor?: string;
+    borderColor?: string | ModeIndependentColor;
 
     /**
      * Minimum resize/crop width
@@ -46,4 +50,25 @@ export default interface ImageEditOptions {
      * @default A predefined SVG icon
      */
     rotateIconHTML?: string;
+
+    /**
+     * Whether side resizing (single direction resizing) is disabled. @default false
+     */
+    disableSideResize?: boolean;
+
+    /**
+     * Whether image rotate is disabled. @default false
+     */
+    disableRotate?: boolean;
+
+    /**
+     * Whether image crop is disabled. @default false
+     */
+    disableCrop?: boolean;
+
+    /**
+     * Which operations will be executed when image is selected
+     * @default ImageEditOperation.ResizeAndRotate
+     */
+    onSelectState?: ImageEditOperation | CompatibleImageEditOperation;
 }

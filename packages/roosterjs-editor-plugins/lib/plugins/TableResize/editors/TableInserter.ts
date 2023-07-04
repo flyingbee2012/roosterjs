@@ -1,12 +1,7 @@
 import Disposable from '../../../pluginUtils/Disposable';
 import TableEditFeature from './TableEditorFeature';
-import { createElement, normalizeRect, VTable } from 'roosterjs-editor-dom';
-import {
-    CreateElementData,
-    IEditor,
-    SizeTransformer,
-    TableOperation,
-} from 'roosterjs-editor-types';
+import { createElement, getIntersectedRect, normalizeRect, VTable } from 'roosterjs-editor-dom';
+import { CreateElementData, IEditor, TableOperation } from 'roosterjs-editor-types';
 
 const INSERTER_COLOR = '#4A4A4A';
 const INSERTER_COLOR_DARK_MODE = 'white';
@@ -21,37 +16,47 @@ export default function createTableInserter(
     td: HTMLTableCellElement,
     isRTL: boolean,
     isHorizontal: boolean,
-    onInsert: () => void
-): TableEditFeature {
+    onInsert: (table: HTMLTableElement) => void,
+    getOnMouseOut: (feature: HTMLElement) => (ev: MouseEvent) => void,
+    onShowHelperElement?: (
+        elementData: CreateElementData,
+        helperType: 'CellResizer' | 'TableInserter' | 'TableResizer' | 'TableSelector'
+    ) => void
+): TableEditFeature | null {
     const table = editor.getElementAtCursor('table', td);
+
     const tdRect = normalizeRect(td.getBoundingClientRect());
-    const tableRect = table ? normalizeRect(table.getBoundingClientRect()) : null;
+    const viewPort = editor.getVisibleViewport();
+    const tableRect = table && viewPort ? getIntersectedRect([table], [viewPort]) : null;
 
     // set inserter position
     if (tdRect && tableRect) {
         const document = td.ownerDocument;
-        const div = createElement(
-            getInsertElementData(
-                isHorizontal,
-                editor.isDarkMode(),
-                isRTL,
-                editor.getDefaultFormat().backgroundColor || 'white'
-            ),
-            document
-        ) as HTMLDivElement;
+        const createElementData = getInsertElementData(
+            isHorizontal,
+            editor.isDarkMode(),
+            isRTL,
+            editor.getDefaultFormat().backgroundColor || 'white'
+        );
+
+        onShowHelperElement?.(createElementData, 'TableInserter');
+
+        const div = createElement(createElementData, document) as HTMLDivElement;
 
         if (isHorizontal) {
+            // tableRect.left/right is used because the Inserter is always intended to be on the side
             div.style.left = `${
                 isRTL
-                    ? tdRect.right
-                    : tdRect.left - (INSERTER_SIDE_LENGTH - 1 + 2 * INSERTER_BORDER_SIZE)
+                    ? tableRect.right
+                    : tableRect.left - (INSERTER_SIDE_LENGTH - 1 + 2 * INSERTER_BORDER_SIZE)
             }px`;
             div.style.top = `${tdRect.bottom - 8}px`;
             (div.firstChild as HTMLElement).style.width = `${tableRect.right - tableRect.left}px`;
         } else {
-            div.style.left = `${isRTL ? tdRect.left : tdRect.right - 8}px`;
+            div.style.left = `${isRTL ? tdRect.left - 8 : tdRect.right - 8}px`;
+            // tableRect.top is used because the Inserter is always intended to be on top
             div.style.top = `${
-                tdRect.top - (INSERTER_SIDE_LENGTH - 1 + 2 * INSERTER_BORDER_SIZE)
+                tableRect.top - (INSERTER_SIDE_LENGTH - 1 + 2 * INSERTER_BORDER_SIZE)
             }px`;
             (div.firstChild as HTMLElement).style.height = `${tableRect.bottom - tableRect.top}px`;
         }
@@ -62,44 +67,56 @@ export default function createTableInserter(
             div,
             td,
             isHorizontal,
-            editor.getSizeTransformer(),
-            onInsert
+            editor,
+            onInsert,
+            getOnMouseOut
         );
 
         return { div, featureHandler: handler, node: td };
     }
+
+    return null;
 }
 
 class TableInsertHandler implements Disposable {
+    private onMouseOutEvent: null | ((ev: MouseEvent) => void);
     constructor(
         private div: HTMLDivElement,
         private td: HTMLTableCellElement,
         private isHorizontal: boolean,
-        private sizeTransformer: SizeTransformer,
-        private onInsert: () => void
+        private editor: IEditor,
+        private onInsert: (table: HTMLTableElement) => void,
+        getOnMouseOut: (feature: HTMLElement) => (ev: MouseEvent) => void
     ) {
         this.div.addEventListener('click', this.insertTd);
+        this.onMouseOutEvent = getOnMouseOut(div);
+        this.div.addEventListener('mouseout', this.onMouseOutEvent);
     }
 
     dispose() {
         this.div.removeEventListener('click', this.insertTd);
-        this.div = null;
+
+        if (this.onMouseOutEvent) {
+            this.div.removeEventListener('mouseout', this.onMouseOutEvent);
+        }
+
+        this.onMouseOutEvent = null;
     }
 
     private insertTd = () => {
         let vtable = new VTable(this.td);
         if (!this.isHorizontal) {
-            vtable.normalizeTableCellSize(this.sizeTransformer);
+            vtable.normalizeTableCellSize(this.editor.getZoomScale());
 
             // Since adding new column will cause table width to change, we need to remove width properties
             vtable.table.removeAttribute('width');
-            vtable.table.style.width = null;
+            vtable.table.style.setProperty('width', null);
         }
 
         vtable.edit(this.isHorizontal ? TableOperation.InsertBelow : TableOperation.InsertRight);
         vtable.writeBack();
 
-        this.onInsert();
+        this.onInsert(vtable.table);
     };
 }
 
@@ -110,7 +127,7 @@ function getInsertElementData(
     backgroundColor: string
 ): CreateElementData {
     const inserterColor = isDark ? INSERTER_COLOR_DARK_MODE : INSERTER_COLOR;
-    const outerDivStyle = `position: fixed; width: ${INSERTER_SIDE_LENGTH}px; height: ${INSERTER_SIDE_LENGTH}px; font-size: 16px; color: ${inserterColor}; line-height: 10px; vertical-align: middle; text-align: center; cursor: pointer; border: solid ${INSERTER_BORDER_SIZE}px ${inserterColor}; border-radius: 50%; background-color: ${backgroundColor}`;
+    const outerDivStyle = `position: fixed; width: ${INSERTER_SIDE_LENGTH}px; height: ${INSERTER_SIDE_LENGTH}px; font-size: 16px; color: black; line-height: 8px; vertical-align: middle; text-align: center; cursor: pointer; border: solid ${INSERTER_BORDER_SIZE}px ${inserterColor}; border-radius: 50%; background-color: ${backgroundColor}`;
     const leftOrRight = isRTL ? 'right' : 'left';
     const childBaseStyles = `position: absolute; box-sizing: border-box; background-color: ${backgroundColor};`;
     const childInfo: CreateElementData = {

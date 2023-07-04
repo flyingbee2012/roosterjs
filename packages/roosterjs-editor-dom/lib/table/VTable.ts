@@ -1,10 +1,11 @@
-import applyTableFormat from '../utils/applyTableFormat';
+import applyTableFormat from './applyTableFormat';
+import getTagOfNode from '../utils/getTagOfNode';
 import moveChildNodes from '../utils/moveChildNodes';
 import normalizeRect from '../utils/normalizeRect';
 import safeInstanceOf from '../utils/safeInstanceOf';
-import toArray from '../utils/toArray';
+import toArray from '../jsUtils/toArray';
 import { getTableFormatInfo, saveTableInfo } from './tableFormatInfo';
-
+import { removeMetadata } from '../metadata/metadata';
 import {
     SizeTransformer,
     TableBorderFormat,
@@ -12,10 +13,11 @@ import {
     TableOperation,
     TableSelection,
     VCell,
+    DarkColorHandler,
 } from 'roosterjs-editor-types';
+import type { CompatibleTableOperation } from 'roosterjs-editor-types/lib/compatibleTypes';
 
-const CELL_SHADE = 'cellShade';
-const DEFAULT_FORMAT: TableFormat = {
+const DEFAULT_FORMAT: Required<TableFormat> = {
     topBorderColor: '#ABABAB',
     bottomBorderColor: '#ABABAB',
     verticalBorderColor: '#ABABAB',
@@ -27,6 +29,7 @@ const DEFAULT_FORMAT: TableFormat = {
     bgColorOdd: '#ABABAB20',
     headerRowColor: '#ABABAB',
     tableBorderFormat: TableBorderFormat.DEFAULT,
+    keepCellShade: false,
 };
 
 /**
@@ -41,40 +44,37 @@ export default class VTable {
     /**
      * Virtual cells
      */
-    cells: VCell[][];
+    cells: VCell[][] | null = null;
 
     /**
      * Current row index
      */
-    row: number;
+    row: number | undefined;
 
     /**
      * Current column index
      */
-    col: number;
-
-    /**
-     * Selected range of cells with the coordinates of the first and last cell selected.
-     */
-    selection: TableSelection;
+    col: number | undefined;
 
     /**
      * Current format of the table
      */
-    formatInfo: TableFormat;
+    formatInfo: Required<TableFormat> | null = null;
 
     private trs: HTMLTableRowElement[] = [];
+
+    private tableSelection: TableSelection | null = null;
 
     /**
      * Create a new instance of VTable object using HTML TABLE or TD node
      * @param node The HTML Table or TD node
      * @param normalizeSize Whether table size needs to be normalized
-     * @param sizeTransformer A size transformer function used for normalize table size
+     * @param zoomScale When the table is under a zoomed container, pass in the zoom scale here
      */
     constructor(
         node: HTMLTableElement | HTMLTableCellElement,
         normalizeSize?: boolean,
-        sizeTransformer?: SizeTransformer
+        zoomScale?: number | SizeTransformer
     ) {
         this.table = safeInstanceOf(node, 'HTMLTableElement') ? node : getTableFromTd(node);
         if (this.table) {
@@ -85,7 +85,7 @@ export default class VTable {
                 this.trs[rowIndex % 2] = tr;
                 for (let sourceCol = 0, targetCol = 0; sourceCol < tr.cells.length; sourceCol++) {
                     // Skip the cells which already initialized
-                    for (; this.cells[rowIndex][targetCol]; targetCol++) {}
+                    for (; this.cells![rowIndex][targetCol]; targetCol++) {}
                     let td = tr.cells[sourceCol];
 
                     if (td == currentTd) {
@@ -97,46 +97,79 @@ export default class VTable {
                         for (let rowSpan = 0; rowSpan < td.rowSpan; rowSpan++) {
                             const hasTd: boolean = colSpan + rowSpan == 0;
                             const rect = td.getBoundingClientRect();
-                            this.cells[rowIndex + rowSpan][targetCol] = {
-                                td: hasTd ? td : null,
-                                spanLeft: colSpan > 0,
-                                spanAbove: rowSpan > 0,
-                                width: hasTd ? rect.width : undefined,
-                                height: hasTd ? rect.height : undefined,
-                            };
+                            if (this.cells?.[rowIndex + rowSpan]) {
+                                this.cells[rowIndex + rowSpan][targetCol] = {
+                                    td: hasTd ? td : null,
+                                    spanLeft: colSpan > 0,
+                                    spanAbove: rowSpan > 0,
+                                    width: hasTd ? rect.width : undefined,
+                                    height: hasTd ? rect.height : undefined,
+                                };
+                            }
                         }
                     }
                 }
             });
             this.formatInfo = getTableFormatInfo(this.table);
             if (normalizeSize) {
-                this.normalizeSize(sizeTransformer);
+                this.normalizeSize(typeof zoomScale == 'number' ? n => n / zoomScale : zoomScale);
             }
         }
     }
 
     /**
-     * Write the virtual table back to DOM tree to represent the change of VTable
+     * Selected range of cells with the coordinates of the first and last cell selected.
      */
-    writeBack() {
+    public get selection(): TableSelection | null {
+        return this.tableSelection || null;
+    }
+
+    public set selection(value: TableSelection | null) {
+        if (value) {
+            const { firstCell } = value;
+            this.row = firstCell?.y;
+            this.col = firstCell?.x;
+        }
+        this.tableSelection = value;
+    }
+
+    /**
+     * Write the virtual table back to DOM tree to represent the change of VTable
+     * @param skipApplyFormat Do not reapply table format when write back. Only use this parameter when you are pretty sure there is no format or table structure change during the process.
+     * @param darkColorHandler An object to handle dark background colors, if not passed the cell background color will not be set
+     */
+    writeBack(skipApplyFormat?: boolean, darkColorHandler?: DarkColorHandler | null) {
         if (this.cells) {
             moveChildNodes(this.table);
             this.cells.forEach((row, r) => {
                 let tr = cloneNode(this.trs[r % 2] || this.trs[0]);
-                this.table.appendChild(tr);
-                row.forEach((cell, c) => {
-                    if (cell.td) {
-                        this.recalculateSpans(r, c);
-                        tr.appendChild(cell.td);
-                    }
-                });
+
+                if (tr) {
+                    this.table.appendChild(tr);
+                    row.forEach((cell, c) => {
+                        if (cell.td) {
+                            this.recalculateSpans(r, c);
+                            this.recalculateCellHeight(cell.td);
+                            tr!.appendChild(cell.td);
+                        }
+                    });
+                }
             });
-            if (this.formatInfo) {
+            if (this.formatInfo && !skipApplyFormat) {
                 saveTableInfo(this.table, this.formatInfo);
-                applyTableFormat(this.table, this.cells, this.formatInfo);
+                applyTableFormat(this.table, this.cells, this.formatInfo, darkColorHandler);
             }
         } else if (this.table) {
-            this.table.parentNode.removeChild(this.table);
+            this.table.parentNode?.removeChild(this.table);
+        }
+    }
+
+    private recalculateCellHeight(td: HTMLTableCellElement) {
+        if (this.isEmptyCell(td) && td.rowSpan > 1) {
+            for (let i = 1; i < td.rowSpan; i++) {
+                const br = document.createElement('br');
+                td.appendChild(br);
+            }
         }
     }
 
@@ -148,19 +181,25 @@ export default class VTable {
         if (!this.table) {
             return;
         }
-        this.formatInfo = { ...DEFAULT_FORMAT, ...(this.formatInfo || {}), ...(format || {}) };
-        this.deleteCellShadeDataset(this.cells);
+        this.formatInfo = {
+            ...DEFAULT_FORMAT,
+            ...(this.formatInfo || {}),
+            ...(format || {}),
+        };
+        if (!this.formatInfo.keepCellShade) {
+            this.deleteCellShadeDataset(this.cells);
+        }
     }
 
     /**
-     * Remove the cellshade dataset to apply a new style format at the cell.
+     * Remove the cellShade dataset to apply a new style format at the cell.
      * @param cells
      */
-    private deleteCellShadeDataset(cells: VCell[][]) {
-        cells.forEach(row => {
+    private deleteCellShadeDataset(cells: VCell[][] | null) {
+        cells?.forEach(row => {
             row.forEach(cell => {
-                if (cell.td && cell.td.dataset[CELL_SHADE]) {
-                    delete cell.td.dataset[CELL_SHADE];
+                if (cell.td) {
+                    removeMetadata(cell.td);
                 }
             });
         });
@@ -170,83 +209,116 @@ export default class VTable {
      * Edit table with given operation.
      * @param operation Table operation
      */
-    edit(operation: TableOperation) {
-        if (!this.table) {
+    edit(operation: TableOperation | CompatibleTableOperation) {
+        if (!this.table || !this.cells || this.row === undefined || this.col == undefined) {
             return;
         }
 
         let currentRow = this.cells[this.row];
         let currentCell = currentRow[this.col];
-        let { style } = currentCell.td;
+        const firstRow = this.selection ? this.selection.firstCell.y : this.row;
+        const lastRow = this.selection ? this.selection.lastCell.y : this.row;
+        const firstColumn = this.selection ? this.selection.firstCell.x : this.col;
+        const lastColumn = this.selection ? this.selection.lastCell.x : this.col;
         switch (operation) {
             case TableOperation.InsertAbove:
-                this.cells.splice(this.row, 0, currentRow.map(cloneCell));
+                for (let i = firstRow; i <= lastRow; i++) {
+                    this.cells.splice(firstRow, 0, currentRow.map(cloneCell));
+                }
                 break;
             case TableOperation.InsertBelow:
-                let newRow = this.row + this.countSpanAbove(this.row, this.col);
-                this.cells.splice(
-                    newRow,
-                    0,
-                    this.cells[newRow - 1].map((cell, colIndex) => {
-                        let nextCell = this.getCell(newRow, colIndex);
-                        if (nextCell.spanAbove) {
-                            return cloneCell(nextCell);
-                        } else if (cell.spanLeft) {
-                            let newCell = cloneCell(cell);
-                            newCell.spanAbove = false;
-                            return newCell;
-                        } else {
-                            return {
-                                td: cloneNode(this.getTd(this.row, colIndex)),
-                            };
-                        }
-                    })
-                );
+                for (let i = firstRow; i <= lastRow; i++) {
+                    let newRow = lastRow + this.countSpanAbove(lastRow, this.col);
+                    this.cells.splice(
+                        newRow,
+                        0,
+                        this.cells[newRow - 1].map((cell, colIndex) => {
+                            let nextCell = this.getCell(newRow, colIndex);
+
+                            if (nextCell.spanAbove) {
+                                return cloneCell(nextCell);
+                            } else if (cell.spanLeft) {
+                                let newCell = cloneCell(cell);
+                                newCell.spanAbove = false;
+                                return newCell;
+                            } else {
+                                return {
+                                    td: cloneNode(this.getTd(this.row!, colIndex)),
+                                };
+                            }
+                        })
+                    );
+                }
+
                 break;
 
             case TableOperation.InsertLeft:
-                this.forEachCellOfCurrentColumn((cell, row) => {
-                    row.splice(this.col, 0, cloneCell(cell));
-                });
+                for (let i = firstColumn; i <= lastColumn; i++) {
+                    this.forEachCellOfCurrentColumn((cell, row) => {
+                        row.splice(i, 0, cloneCell(cell));
+                    });
+                }
+
                 break;
             case TableOperation.InsertRight:
-                let newCol = this.col + this.countSpanLeft(this.row, this.col);
-                this.forEachCellOfColumn(newCol - 1, (cell, row, i) => {
-                    let nextCell = this.getCell(i, newCol);
-                    let newCell: VCell;
-                    if (nextCell.spanLeft) {
-                        newCell = cloneCell(nextCell);
-                    } else if (cell.spanAbove) {
-                        newCell = cloneCell(cell);
-                        newCell.spanLeft = false;
-                    } else {
-                        newCell = {
-                            td: cloneNode(this.getTd(i, this.col)),
-                        };
-                    }
+                for (let i = firstColumn; i <= lastColumn; i++) {
+                    let newCol = lastColumn + this.countSpanLeft(this.row, lastColumn);
+                    this.forEachCellOfColumn(newCol - 1, (cell, row, i) => {
+                        let nextCell = this.getCell(i, newCol);
+                        let newCell: VCell;
+                        if (nextCell.spanLeft) {
+                            newCell = cloneCell(nextCell);
+                        } else if (cell.spanAbove) {
+                            newCell = cloneCell(cell);
+                            newCell.spanLeft = false;
+                        } else {
+                            newCell = {
+                                td: cloneNode(this.getTd(i, this.col!)),
+                            };
+                        }
 
-                    row.splice(newCol, 0, newCell);
-                });
+                        row.splice(newCol, 0, newCell);
+                    });
+                }
+
                 break;
 
             case TableOperation.DeleteRow:
-                this.forEachCellOfCurrentRow((cell, i) => {
-                    let nextCell = this.getCell(this.row + 1, i);
-                    if (cell.td && cell.td.rowSpan > 1 && nextCell.spanAbove) {
-                        nextCell.td = cell.td;
-                    }
-                });
-                this.cells.splice(this.row, 1);
-                break;
+                for (let rowIndex = firstRow; rowIndex <= lastRow; rowIndex++) {
+                    this.forEachCellOfRow(rowIndex, (cell: VCell, i: number) => {
+                        let nextCell = this.getCell(rowIndex + 1, i);
+                        if (cell.td && cell.td.rowSpan > 1 && nextCell.spanAbove) {
+                            nextCell.td = cell.td;
+                        }
+                    });
+                }
+                const removedRows = this.selection
+                    ? this.selection.lastCell.y - this.selection.firstCell.y
+                    : 0;
+                this.cells.splice(firstRow, removedRows + 1);
+                if (this.cells.length === 0) {
+                    this.cells = null;
+                }
 
+                break;
             case TableOperation.DeleteColumn:
-                this.forEachCellOfCurrentColumn((cell, row, i) => {
-                    let nextCell = this.getCell(i, this.col + 1);
-                    if (cell.td && cell.td.colSpan > 1 && nextCell.spanLeft) {
-                        nextCell.td = cell.td;
-                    }
-                    row.splice(this.col, 1);
-                });
+                let deletedColumns = 0;
+                for (let colIndex = firstColumn; colIndex <= lastColumn; colIndex++) {
+                    this.forEachCellOfColumn(colIndex, (cell, row, i) => {
+                        let nextCell = this.getCell(i, colIndex + 1);
+                        if (cell.td && cell.td.colSpan > 1 && nextCell.spanLeft) {
+                            nextCell.td = cell.td;
+                        }
+                        const removedColumns = this.selection
+                            ? colIndex - deletedColumns
+                            : this.col!;
+                        row.splice(removedColumns, 1);
+                    });
+                    deletedColumns++;
+                }
+                if (this.cells?.length === 0 || this.cells?.every(row => row.length === 0)) {
+                    this.cells = null;
+                }
                 break;
 
             case TableOperation.MergeAbove:
@@ -261,15 +333,7 @@ export default class VTable {
                     if (cell.td && !cell.spanAbove) {
                         let aboveCell = rowIndex < this.row ? cell : currentCell;
                         let belowCell = rowIndex < this.row ? currentCell : cell;
-                        if (aboveCell.td.colSpan == belowCell.td.colSpan) {
-                            moveChildNodes(
-                                aboveCell.td,
-                                belowCell.td,
-                                true /*keepExistingChildren*/
-                            );
-                            belowCell.td = null;
-                            belowCell.spanAbove = true;
-                        }
+                        this.mergeCells(aboveCell, belowCell);
                         break;
                     }
                 }
@@ -287,26 +351,33 @@ export default class VTable {
                     if (cell.td && !cell.spanLeft) {
                         let leftCell = colIndex < this.col ? cell : currentCell;
                         let rightCell = colIndex < this.col ? currentCell : cell;
-                        if (leftCell.td.rowSpan == rightCell.td.rowSpan) {
-                            moveChildNodes(
-                                leftCell.td,
-                                rightCell.td,
-                                true /*keepExistingChildren*/
-                            );
-                            rightCell.td = null;
-                            rightCell.spanLeft = true;
-                        }
+                        this.mergeCells(leftCell, rightCell, true /** horizontally */);
                         break;
                     }
                 }
                 break;
 
+            case TableOperation.MergeCells:
+                for (let colIndex = firstColumn; colIndex <= lastColumn; colIndex++) {
+                    for (let rowIndex = firstRow + 1; rowIndex <= lastRow; rowIndex++) {
+                        let cell = this.getCell(firstRow, colIndex);
+                        let nextCellBelow = this.getCell(rowIndex, colIndex);
+                        this.mergeCells(cell, nextCellBelow);
+                    }
+                }
+                for (let colIndex = firstColumn + 1; colIndex <= lastColumn; colIndex++) {
+                    let cell = this.getCell(firstRow, firstColumn);
+                    let nextCellRight = this.getCell(firstRow, colIndex);
+                    this.mergeCells(cell, nextCellRight, true /** horizontally */);
+                }
+
+                break;
             case TableOperation.DeleteTable:
                 this.cells = null;
                 break;
 
             case TableOperation.SplitVertically:
-                if (currentCell.td.rowSpan > 1) {
+                if (currentCell.td && currentCell.td.rowSpan > 1) {
                     this.getCell(this.row + 1, this.col).td = cloneNode(currentCell.td);
                 } else {
                     let splitRow = currentRow.map(cell => {
@@ -321,11 +392,11 @@ export default class VTable {
                 break;
 
             case TableOperation.SplitHorizontally:
-                if (currentCell.td.colSpan > 1) {
+                if (currentCell.td && currentCell.td.colSpan > 1) {
                     this.getCell(this.row, this.col + 1).td = cloneNode(currentCell.td);
                 } else {
                     this.forEachCellOfCurrentColumn((cell, row) => {
-                        row.splice(this.col + 1, 0, {
+                        row.splice(this.col! + 1, 0, {
                             td: row == currentRow ? cloneNode(cell.td) : null,
                             spanAbove: cell.spanAbove,
                             spanLeft: row != currentRow,
@@ -333,7 +404,6 @@ export default class VTable {
                     });
                 }
                 break;
-
             case TableOperation.AlignCenter:
                 this.table.style.marginLeft = 'auto';
                 this.table.style.marginRight = 'auto';
@@ -347,23 +417,113 @@ export default class VTable {
                 this.table.style.marginRight = '';
                 break;
             case TableOperation.AlignCellCenter:
-                style.textAlign = 'center';
+                this.setAlignmentToSelectedCells(
+                    firstRow,
+                    lastRow,
+                    firstColumn,
+                    lastColumn,
+                    'center'
+                );
                 break;
             case TableOperation.AlignCellLeft:
-                style.textAlign = 'left';
+                this.setAlignmentToSelectedCells(
+                    firstRow,
+                    lastRow,
+                    firstColumn,
+                    lastColumn,
+                    'left'
+                );
                 break;
             case TableOperation.AlignCellRight:
-                style.textAlign = 'right';
+                this.setAlignmentToSelectedCells(
+                    firstRow,
+                    lastRow,
+                    firstColumn,
+                    lastColumn,
+                    'right'
+                );
                 break;
             case TableOperation.AlignCellTop:
-                style.verticalAlign = 'top';
+                this.setAlignmentToSelectedCells(
+                    firstRow,
+                    lastRow,
+                    firstColumn,
+                    lastColumn,
+                    'top',
+                    true /** isVertical */
+                );
                 break;
             case TableOperation.AlignCellMiddle:
-                style.verticalAlign = 'middle';
+                this.setAlignmentToSelectedCells(
+                    firstRow,
+                    lastRow,
+                    firstColumn,
+                    lastColumn,
+                    'middle',
+                    true /** isVertical */
+                );
                 break;
             case TableOperation.AlignCellBottom:
-                style.verticalAlign = 'bottom';
+                this.setAlignmentToSelectedCells(
+                    firstRow,
+                    lastRow,
+                    firstColumn,
+                    lastColumn,
+                    'bottom',
+                    true /** isVertical */
+                );
                 break;
+        }
+    }
+
+    setAlignmentToSelectedCells(
+        firstRow: number,
+        lastRow: number,
+        firstColumn: number,
+        lastColumn: number,
+        alignmentType: string,
+        isVertical?: boolean
+    ) {
+        for (let i = firstRow; i <= lastRow; i++) {
+            for (let j = firstColumn; j <= lastColumn; j++) {
+                if (this.cells) {
+                    const cell = this.cells[i][j].td;
+                    if (isVertical && cell) {
+                        cell.style?.setProperty('vertical-align', alignmentType);
+                    } else if (cell) {
+                        cell.style?.setProperty('text-align', alignmentType);
+                    }
+                }
+            }
+        }
+    }
+
+    private mergeCells(cell: VCell, nextCell: VCell, horizontally?: boolean) {
+        const checkSpans = horizontally
+            ? cell.td?.rowSpan === nextCell.td?.rowSpan && !cell.spanLeft
+            : cell.td?.colSpan === nextCell.td?.colSpan && !cell.spanAbove;
+        if (cell.td && nextCell.td && checkSpans) {
+            this.mergeCellContents(cell.td, nextCell.td);
+            nextCell.td = null;
+            if (horizontally) {
+                nextCell.spanLeft = true;
+            } else {
+                nextCell.spanAbove = true;
+            }
+        }
+    }
+
+    private isEmptyCell(td: HTMLTableCellElement) {
+        return td.childElementCount === 1 && getTagOfNode(td.firstChild) === 'BR';
+    }
+
+    private mergeCellContents(cellTd: HTMLTableCellElement, nextCellTd: HTMLTableCellElement) {
+        if (this.isEmptyCell(nextCellTd)) {
+            moveChildNodes(cellTd, nextCellTd, false /*keepExistingChildren*/);
+        } else {
+            const br = document.createElement('br');
+            cellTd.appendChild(br);
+            moveChildNodes(cellTd, nextCellTd, true /*keepExistingChildren*/);
         }
     }
 
@@ -401,7 +561,7 @@ export default class VTable {
      */
     getCellsWithBorder(borderPos: number, getLeftCells: boolean): HTMLTableCellElement[] {
         const cells: HTMLTableCellElement[] = [];
-        for (let i = 0; i < this.cells.length; i++) {
+        for (let i = 0; this.cells && i < this.cells.length; i++) {
             for (let j = 0; j < this.cells[i].length; j++) {
                 const cell = this.getCell(i, j);
                 if (cell.td) {
@@ -452,7 +612,7 @@ export default class VTable {
     /**
      * Get current HTML table cell object. If the current table cell is a virtual expanded cell, return its root cell
      */
-    getCurrentTd(): HTMLTableCellElement {
+    getCurrentTd(): HTMLTableCellElement | null {
         return this.getTd(this.row, this.col);
     }
 
@@ -461,8 +621,8 @@ export default class VTable {
      * @param row row of the cell
      * @param col column of the cell
      */
-    getTd(row: number, col: number) {
-        if (this.cells) {
+    getTd(row: number | undefined, col: number | undefined) {
+        if (this.cells && row !== undefined && col !== undefined) {
             row = Math.min(this.cells.length - 1, row);
             col = this.cells[row] ? Math.min(this.cells[row].length - 1, col) : col;
             if (!isNaN(row) && !isNaN(col)) {
@@ -484,17 +644,21 @@ export default class VTable {
     }
 
     private forEachCellOfColumn(
-        col: number,
+        col: number | undefined,
         callback: (cell: VCell, row: VCell[], i: number) => any
     ) {
-        for (let i = 0; i < this.cells.length; i++) {
-            callback(this.getCell(i, col), this.cells[i], i);
+        if (col !== undefined) {
+            for (let i = 0; this.cells && i < this.cells.length; i++) {
+                callback(this.getCell(i, col), this.cells[i], i);
+            }
         }
     }
 
-    private forEachCellOfRow(row: number, callback: (cell: VCell, i: number) => any) {
-        for (let i = 0; i < this.cells[row].length; i++) {
-            callback(this.getCell(row, i), i);
+    private forEachCellOfRow(row: number | undefined, callback: (cell: VCell, i: number) => any) {
+        if (row !== undefined) {
+            for (let i = 0; this.cells && i < this.cells[row].length; i++) {
+                callback(this.getCell(row, i), i);
+            }
         }
     }
 
@@ -514,7 +678,7 @@ export default class VTable {
 
     private countSpanLeft(row: number, col: number) {
         let result = 1;
-        for (let i = col + 1; i < this.cells[row].length; i++) {
+        for (let i = col + 1; this.cells && i < this.cells[row].length; i++) {
             let cell = this.getCell(row, i);
             if (cell.td || !cell.spanLeft) {
                 break;
@@ -526,7 +690,7 @@ export default class VTable {
 
     private countSpanAbove(row: number, col: number) {
         let result = 1;
-        for (let i = row + 1; i < this.cells.length; i++) {
+        for (let i = row + 1; this.cells && i < this.cells.length; i++) {
             let cell = this.getCell(i, col);
             if (cell.td || !cell.spanAbove) {
                 break;
@@ -549,31 +713,36 @@ export default class VTable {
     }
 
     /* normalize width/height for each cell in the table */
-    public normalizeTableCellSize(sizeTransformer?: SizeTransformer) {
+    public normalizeTableCellSize(zoomScale?: number | SizeTransformer) {
         // remove width/height for each row
         for (let i = 0, row; (row = this.table.rows[i]); i++) {
             row.removeAttribute('width');
-            row.style.width = null;
+            row.style.setProperty('width', null);
             row.removeAttribute('height');
-            row.style.height = null;
+            row.style.setProperty('height', null);
         }
 
         // set width/height for each cell
-        for (let i = 0; i < this.cells.length; i++) {
+        for (let i = 0; this.cells && i < this.cells.length; i++) {
             for (let j = 0; j < this.cells[i].length; j++) {
                 const cell = this.cells[i][j];
                 if (cell) {
+                    const func =
+                        typeof zoomScale == 'number' ? (n: number) => n / zoomScale : zoomScale;
+                    const width = cell.width || 0;
+                    const height = cell.height || 0;
+
                     setHTMLElementSizeInPx(
                         cell.td,
-                        sizeTransformer?.(cell.width) || cell.width,
-                        sizeTransformer?.(cell.height) || cell.height
+                        func?.(width) || width,
+                        func?.(height) || height
                     );
                 }
             }
         }
     }
 
-    private normalizeSize(sizeTransformer: SizeTransformer) {
+    private normalizeSize(sizeTransformer: SizeTransformer | undefined) {
         this.normalizeEmptyTableCells();
         this.normalizeTableCellSize(sizeTransformer);
 
@@ -588,7 +757,11 @@ export default class VTable {
     }
 }
 
-function setHTMLElementSizeInPx(element: HTMLElement, newWidth: number, newHeight: number) {
+function setHTMLElementSizeInPx(
+    element: HTMLElement | null | undefined,
+    newWidth: number,
+    newHeight: number
+) {
     if (!!element) {
         element.removeAttribute('width');
         element.removeAttribute('height');
@@ -599,7 +772,7 @@ function setHTMLElementSizeInPx(element: HTMLElement, newWidth: number, newHeigh
 }
 
 function getTableFromTd(td: HTMLTableCellElement) {
-    let result = <HTMLElement>td;
+    let result: Element | null = <HTMLElement>td;
     for (; result && result.tagName != 'TABLE'; result = result.parentElement) {}
     return <HTMLTableElement>result;
 }
@@ -620,12 +793,12 @@ function cloneCell(cell: VCell): VCell {
  * Clone a node without its children.
  * @param node The node to clone
  */
-function cloneNode<T extends Node>(node: T): T {
+function cloneNode<T extends Node>(node: T | null | undefined): T | null {
     let newNode = node ? <T>node.cloneNode(false /*deep*/) : null;
     if (safeInstanceOf(newNode, 'HTMLTableCellElement')) {
         newNode.removeAttribute('id');
         if (!newNode.firstChild) {
-            newNode.appendChild(node.ownerDocument.createElement('br'));
+            newNode.appendChild(node!.ownerDocument!.createElement('br'));
         }
     }
     return newNode;

@@ -2,7 +2,7 @@ import VTable from '../../lib/table/VTable';
 import { getTableFormatInfo, saveTableInfo } from '../../lib/table/tableFormatInfo';
 import { TableFormat } from 'roosterjs-editor-types';
 
-const TABLE_STYLE_INFO = 'roosterTableInfo';
+const TABLE_STYLE_INFO = 'editingInfo';
 const format: TableFormat = {
     topBorderColor: '#0C64C0',
     bottomBorderColor: '#0C64C0',
@@ -15,10 +15,11 @@ const format: TableFormat = {
     hasFirstColumn: false,
     hasBandedRows: false,
     hasBandedColumns: false,
+    keepCellShade: false,
 };
 
 const expectedTableInfo =
-    '{"topBorderColor":"#0C64C0","bottomBorderColor":"#0C64C0","verticalBorderColor":"#0C64C0","bgColorEven":"#0C64C020","bgColorOdd":null,"headerRowColor":null,"tableBorderFormat":0, "hasHeaderRow": false, "hasFirstColumn": false, "hasBandedRows": false, "hasBandedColumns": false}';
+    '{"topBorderColor":"#0C64C0","bottomBorderColor":"#0C64C0","verticalBorderColor":"#0C64C0","bgColorEven":"#0C64C020","bgColorOdd":null,"headerRowColor":null,"tableBorderFormat":0, "hasHeaderRow": false, "hasFirstColumn": false, "hasBandedRows": false, "hasBandedColumns": false, "keepCellShade": false}';
 
 function createTable(format: TableFormat) {
     let div = document.createElement('div');
@@ -41,7 +42,7 @@ describe('getTableFormatInfo', () => {
     it('should return the info of a table ', () => {
         const table = createTable(format);
         const tableInfo = getTableFormatInfo(table);
-        expect(tableInfo).toEqual(JSON.parse(expectedTableInfo) as TableFormat);
+        expect(tableInfo).toEqual(JSON.parse(expectedTableInfo) as Required<TableFormat>);
         removeTable();
     });
 });

@@ -351,7 +351,7 @@ describe('VListChain.commit', () => {
 
     it('Add a new list item', () => {
         runTest(
-            '<ol id="ol1"><li>item1</li></ol><ol start="2"><li>item3</li></ol>',
+            '<ol id="ol1"><li>item1</li></ol><ol start="3"><li>item3</li></ol>',
             chains => {
                 const ol1 = document.getElementById('ol1');
                 const li = document.createElement('li');
@@ -369,7 +369,7 @@ describe('VListChain.commit', () => {
                 const li = document.getElementById('li2');
                 li.parentNode.removeChild(li);
             },
-            '<ol><li>item1</li></ol><ol start="2"><li>item3</li></ol>'
+            '<ol><li>item1</li></ol><ol start="3"><li>item3</li></ol>'
         );
     });
 
@@ -380,7 +380,7 @@ describe('VListChain.commit', () => {
                 const ol = document.getElementById('ol2');
                 ol.parentNode.removeChild(ol);
             },
-            '<ol><li>item1</li><li>item2</li></ol><ol start="3"><li>item4</li></ol>'
+            '<ol><li>item1</li><li>item2</li></ol><ol start="4"><li>item4</li></ol>'
         );
     });
 
@@ -391,7 +391,7 @@ describe('VListChain.commit', () => {
                 const li = document.getElementById('li1');
                 li.parentNode.removeChild(li);
             },
-            '<ol><li>item2</li></ol><ol start="2"><li>item3</li></ol>'
+            '<ol><li>item2</li></ol><ol start="3"><li>item3</li></ol>'
         );
     });
 
@@ -402,7 +402,7 @@ describe('VListChain.commit', () => {
                 const ol = document.getElementById('ol1');
                 ol.parentNode.removeChild(ol);
             },
-            '<ol><li>item3</li></ol><ol start="2"><li>item4</li></ol>'
+            '<ol start="3"><li>item3</li></ol><ol start="4"><li>item4</li></ol>'
         );
     });
 });

@@ -2,14 +2,15 @@ import * as React from 'react';
 import SidePanePlugin from '../../SidePanePlugin';
 import SnapshotPane from './SnapshotPane';
 import UndoSnapshots from './UndoSnapshots';
+import { ChangeSource, IEditor, PluginEvent, PluginEventType } from 'roosterjs-editor-types';
 import { createSnapshots } from 'roosterjs-editor-dom';
-import { GetContentMode, IEditor, PluginEvent, PluginEventType } from 'roosterjs-editor-types';
+import { Snapshot } from 'roosterjs-editor-types';
 
 export default class SnapshotPlugin implements SidePanePlugin {
     private editorInstance: IEditor;
     private component: SnapshotPane;
     private snapshotService: UndoSnapshots;
-    private static snapshots = createSnapshots(1e7);
+    private static snapshots = createSnapshots<Snapshot>(1e7);
 
     constructor() {
         this.snapshotService = new UndoSnapshots(SnapshotPlugin.snapshots, this.updateSnapshots);
@@ -60,18 +61,33 @@ export default class SnapshotPlugin implements SidePanePlugin {
         };
     }
 
-    private onTakeSnapshot = () => {
-        return this.editorInstance.getContent(GetContentMode.RawHTMLWithSelection);
+    private onTakeSnapshot = (): Snapshot => {
+        let newSnapshot: Snapshot;
+
+        try {
+            this.snapshotService.startHijackUndoSnapshot(snapshot => {
+                newSnapshot = snapshot;
+            });
+            this.editorInstance.addUndoSnapshot();
+        } finally {
+            this.snapshotService.stopHijackUndoSnapshot();
+        }
+
+        return newSnapshot;
     };
 
     private onMove = (step: number) => {
-        let snapshot = this.snapshotService.move(step);
+        const snapshot = this.snapshotService.move(step);
         this.onRestoreSnapshot(snapshot);
     };
 
-    private onRestoreSnapshot = (snapshot: string) => {
+    private onRestoreSnapshot = (snapshot: Snapshot) => {
         this.editorInstance.focus();
-        this.editorInstance.setContent(snapshot, false /*triggerContentChangedEvent*/);
+        this.editorInstance.setContent(
+            this.component.snapshotToString(snapshot),
+            false /*triggerContentChangedEvent*/
+        );
+        this.editorInstance.triggerContentChangedEvent(ChangeSource.SetContent);
     };
 
     private updateSnapshots = () => {

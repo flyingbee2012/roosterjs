@@ -1,4 +1,5 @@
-import { cacheGetEventData, createRange } from 'roosterjs-editor-dom';
+import { cacheGetEventData, createRange, Position, wrap } from 'roosterjs-editor-dom';
+import type { CompatibleKeys } from 'roosterjs-editor-types/lib/compatibleTypes';
 import {
     BuildInEditFeature,
     ChangeSource,
@@ -13,7 +14,7 @@ import {
 const ZERO_WIDTH_SPACE = '\u200B';
 
 function generateBasicMarkdownFeature(
-    key: Keys,
+    key: Keys | CompatibleKeys,
     triggerCharacter: string,
     elementTag: string,
     useShiftKey: boolean
@@ -36,13 +37,13 @@ function cacheGetRangeForMarkdownOperation(
     event: PluginKeyboardEvent,
     editor: IEditor,
     triggerCharacter: string
-): Range {
-    return cacheGetEventData(event, 'MARKDOWN_RANGE', () => {
+): Range | null {
+    return cacheGetEventData(event, 'MARKDOWN_RANGE', (): Range | null => {
         const searcher = editor.getContentSearcherOfCursor(event);
 
-        let startPosition: NodePosition;
-        let endPosition: NodePosition;
-        searcher.forEachTextInlineElement(textInlineElement => {
+        let startPosition: NodePosition | null = null;
+        let endPosition: NodePosition | null = null;
+        searcher?.forEachTextInlineElement(textInlineElement => {
             if (endPosition && startPosition) {
                 return true;
             }
@@ -53,8 +54,13 @@ function cacheGetRangeForMarkdownOperation(
                 return false;
             }
 
+            //if the text is pasted, it might create a inner element inside the text element,
+            // then is necessary to check the parent block to get whole text
+            const parentBlockText = textInlineElement.getParentBlock().getTextContent();
+
             // special case for consecutive trigger characters
-            if (inlineTextContent[inlineTextContent.length - 1] === triggerCharacter) {
+            // check parent block in case of pasted text
+            if (parentBlockText[parentBlockText.length - 1].trim() === triggerCharacter) {
                 return false;
             }
 
@@ -79,7 +85,7 @@ function cacheGetRangeForMarkdownOperation(
                 }
             }
         });
-        return !!startPosition && !!endPosition && createRange(startPosition, endPosition);
+        return startPosition && endPosition && createRange(startPosition, endPosition);
     });
 }
 
@@ -92,7 +98,12 @@ function handleMarkdownEvent(
     editor.addUndoSnapshot(
         () => {
             const range = cacheGetRangeForMarkdownOperation(event, editor, triggerCharacter);
-            if (!!range) {
+            if (!range) {
+                return;
+            }
+            const lastTypedTriggerPosition = new Position(range.endContainer, PositionType.End);
+            const hasLastTypedTrigger = range.endOffset + 1 <= lastTypedTriggerPosition.offset;
+            if (!!range && hasLastTypedTrigger) {
                 // get the text content range
                 const textContentRange = range.cloneRange();
                 textContentRange.setStart(
@@ -100,12 +111,13 @@ function handleMarkdownEvent(
                     textContentRange.startOffset + 1
                 );
 
-                // set the removal range to include the typed last character.
-                range.setEnd(range.endContainer, range.endOffset + 1);
+                const text = textContentRange.extractContents().textContent;
+                const textNode = editor.getDocument().createTextNode(text ?? '');
 
                 // extract content and put it into a new element.
-                const elementToWrap = editor.getDocument().createElement(elementTag);
-                elementToWrap.appendChild(textContentRange.extractContents());
+                const elementToWrap = wrap(textNode, elementTag);
+                //include last typed character
+                range.setEnd(range.endContainer, range.endOffset + 1);
                 range.deleteContents();
 
                 // ZWS here ensures we don't end up inside the newly created node.
@@ -114,6 +126,7 @@ function handleMarkdownEvent(
                     .createTextNode(ZERO_WIDTH_SPACE);
                 range.insertNode(nonPrintedSpaceTextNode);
                 range.insertNode(elementToWrap);
+
                 editor.select(nonPrintedSpaceTextNode, PositionType.End);
             }
         },
@@ -129,7 +142,7 @@ const MarkdownBold: BuildInEditFeature<PluginKeyboardEvent> = generateBasicMarkd
     Keys.EIGHT_ASTERISK,
     '*',
     'b',
-    true
+    true /* useShiftKey */
 );
 
 /**
@@ -139,7 +152,7 @@ const MarkdownItalic: BuildInEditFeature<PluginKeyboardEvent> = generateBasicMar
     Keys.DASH_UNDERSCORE,
     '_',
     'i',
-    true
+    true /* useShiftKey */
 );
 
 /**
@@ -149,7 +162,7 @@ const MarkdownStrikethrough: BuildInEditFeature<PluginKeyboardEvent> = generateB
     Keys.GRAVE_TILDE,
     '~',
     's',
-    true
+    true /* useShiftKey */
 );
 
 /**
@@ -159,7 +172,7 @@ const MarkdownInlineCode: BuildInEditFeature<PluginKeyboardEvent> = generateBasi
     Keys.GRAVE_TILDE,
     '`',
     'code',
-    false
+    false /* useShiftKey */
 );
 
 /**

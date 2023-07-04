@@ -3,21 +3,29 @@
 const path = require('path');
 const mkdirp = require('mkdirp');
 const fs = require('fs');
-const { packages, distPath, readPackageJson, mainPackageJson, err } = require('./common');
+const processConstEnum = require('./processConstEnum');
+const {
+    packages,
+    allPackages,
+    distPath,
+    readPackageJson,
+    mainPackageJson,
+    err,
+} = require('./common');
 
 function normalize() {
     const knownCustomizedPackages = {};
 
-    packages.forEach(packageName => {
+    allPackages.forEach(packageName => {
         const packageJson = readPackageJson(packageName, true /*readFromSourceFolder*/);
 
         Object.keys(packageJson.dependencies).forEach(dep => {
             if (packageJson.dependencies[dep]) {
                 // No op, keep the specified value
             } else if (knownCustomizedPackages[dep]) {
-                packageJson.dependencies[dep] = knownCustomizedPackages[dep];
+                packageJson.dependencies[dep] = '^' + knownCustomizedPackages[dep];
             } else if (packages.indexOf(dep) > -1) {
-                packageJson.dependencies[dep] = mainPackageJson.version;
+                packageJson.dependencies[dep] = '^' + mainPackageJson.version;
             } else if (mainPackageJson.dependencies && mainPackageJson.dependencies[dep]) {
                 packageJson.dependencies[dep] = mainPackageJson.dependencies[dep];
             } else if (!packageJson.dependencies[dep]) {
@@ -44,6 +52,8 @@ function normalize() {
         mkdirp.sync(targetPackagePath);
         fs.writeFileSync(targetFileName, JSON.stringify(packageJson, null, 4));
     });
+
+    processConstEnum();
 }
 
 module.exports = {

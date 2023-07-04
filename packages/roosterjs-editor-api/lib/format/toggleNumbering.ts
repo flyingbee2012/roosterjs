@@ -1,5 +1,6 @@
 import toggleListType from '../utils/toggleListType';
-import { IEditor, ListType } from 'roosterjs-editor-types';
+import { IEditor, ListType, NumberingListType } from 'roosterjs-editor-types';
+import type { CompatibleNumberingListType } from 'roosterjs-editor-types/lib/compatibleTypes';
 
 /**
  * Toggle numbering at selection
@@ -9,7 +10,22 @@ import { IEditor, ListType } from 'roosterjs-editor-types';
  * realization of browser execCommand API
  * @param editor The editor instance
  * @param startNumber (Optional) Start number of the list
+ * @param listStyle (Optional) The style of the numbering list. If not defined, the style will be set to decimal.
+ * @param apiNameOverride (Optional) Set a new api name, if empty the api name will be 'toggleListType'.
  */
-export default function toggleNumbering(editor: IEditor, startNumber?: number) {
-    toggleListType(editor, ListType.Ordered, startNumber);
+export default function toggleNumbering(
+    editor: IEditor,
+    startNumber?: number,
+    listStyle?: NumberingListType | CompatibleNumberingListType,
+    apiNameOverride?: string
+) {
+    toggleListType(
+        editor,
+        ListType.Ordered,
+        startNumber,
+        undefined /* includeSiblingLists */,
+        listStyle,
+        undefined /* unorderedStyle */,
+        apiNameOverride
+    );
 }

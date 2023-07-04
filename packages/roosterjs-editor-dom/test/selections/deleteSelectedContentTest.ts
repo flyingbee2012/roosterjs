@@ -81,14 +81,14 @@ describe('deleteSelectedContent', () => {
         );
     });
 
-    it('Whole talbe 1', () => {
+    it('Whole table 1', () => {
         runTest(
             'aa<table><tbody><tr><td>line1</td><td>line2</td></tr><tr><td>line3</td><td>line4</td></tr></tbody></table>bb<!--{"start":[0,2],"end":[2,0]}-->',
             'aabb<!--{"start":[0,2],"end":[0,2]}-->'
         );
     });
 
-    it('Whole talbe 2', () => {
+    it('Whole table 2', () => {
         // TODO: the result contains separated continuous text object at root
         // Selection path gives wrong result. Need to revisit here
         runTest(
@@ -136,6 +136,13 @@ describe('deleteSelectedContent', () => {
         runTest(
             '<b><div style="color:red">line1</div><div style="color:green; font-size: 20px">line2<div style="color:blue"><i>line3</i></div>line4</div></b><!--{"start":[0,0,0,2],"end":[0,1,1,0,0,2]}-->',
             '<b><div style="color:red">li<span style="color:blue;font-size:20px"><i>ne3</i></span></div><div style="color:green; font-size: 20px">line4</div></b><!--{"start":[0,0,0,2],"end":[0,0,0,2]}-->'
+        );
+    });
+
+    it('Readonly entities', () => {
+        runTest(
+            '<div contenteditable="false">hello there</div><!--{"start":[0,0,2],"end":[0,0,4]}-->',
+            '<div contenteditable="false">hello there</div><!--{"start":[0,0,2],"end":[0,0,2]}-->'
         );
     });
 });

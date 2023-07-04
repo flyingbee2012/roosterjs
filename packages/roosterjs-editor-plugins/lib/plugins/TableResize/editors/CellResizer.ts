@@ -2,7 +2,7 @@ import DragAndDropHandler from '../../../pluginUtils/DragAndDropHandler';
 import DragAndDropHelper from '../../../pluginUtils/DragAndDropHelper';
 import TableEditFeature from './TableEditorFeature';
 import { createElement, normalizeRect, VTable } from 'roosterjs-editor-dom';
-import { KnownCreateElementDataIndex, Rect, SizeTransformer } from 'roosterjs-editor-types';
+import { CreateElementData, Rect } from 'roosterjs-editor-types';
 
 const CELL_RESIZER_WIDTH = 4;
 const MIN_CELL_WIDTH = 30;
@@ -12,23 +12,29 @@ const MIN_CELL_WIDTH = 30;
  */
 export default function createCellResizer(
     td: HTMLTableCellElement,
-    sizeTransformer: SizeTransformer,
+    zoomScale: number,
     isRTL: boolean,
     isHorizontal: boolean,
     onStart: () => void,
-    onEnd: () => false
-): TableEditFeature {
+    onEnd: () => false,
+    onShowHelperElement?: (
+        elementData: CreateElementData,
+        helperType: 'CellResizer' | 'TableInserter' | 'TableResizer' | 'TableSelector'
+    ) => void
+): TableEditFeature | null {
     const document = td.ownerDocument;
-    const div = createElement(
-        isHorizontal
-            ? KnownCreateElementDataIndex.TableHorizontalResizer
-            : KnownCreateElementDataIndex.TableVerticalResizer,
-        document
-    ) as HTMLDivElement;
+    const createElementData = {
+        tag: 'div',
+        style: `position: fixed; cursor: ${isHorizontal ? 'row' : 'col'}-resize; user-select: none`,
+    };
+
+    onShowHelperElement?.(createElementData, 'CellResizer');
+
+    const div = createElement(createElementData, document) as HTMLDivElement;
 
     document.body.appendChild(div);
 
-    const context: DragAndDropContext = { td, isRTL, sizeTransformer, onStart };
+    const context: DragAndDropContext = { td, isRTL, zoomScale, onStart };
     const setPosition = isHorizontal ? setHorizontalPosition : setVerticalPosition;
     setPosition(context, div);
 
@@ -43,7 +49,7 @@ export default function createCellResizer(
         context,
         setPosition,
         handler,
-        sizeTransformer
+        zoomScale
     );
 
     return { node: td, div, featureHandler };
@@ -52,7 +58,7 @@ export default function createCellResizer(
 interface DragAndDropContext {
     td: HTMLTableCellElement;
     isRTL: boolean;
-    sizeTransformer: SizeTransformer;
+    zoomScale: number;
     onStart: () => void;
 }
 
@@ -60,11 +66,12 @@ interface DragAndDropInitValue {
     vTable: VTable;
     currentCells: HTMLTableCellElement[];
     nextCells: HTMLTableCellElement[];
+    initialX: number;
 }
 
-function onDragStart(context: DragAndDropContext, event: MouseEvent) {
-    const { td, isRTL, sizeTransformer, onStart } = context;
-    const vTable = new VTable(td, true /*normalizeSize*/, sizeTransformer);
+function onDragStart(context: DragAndDropContext, event: MouseEvent): DragAndDropInitValue {
+    const { td, isRTL, zoomScale, onStart } = context;
+    const vTable = new VTable(td, true /*normalizeSize*/, zoomScale);
     const rect = normalizeRect(td.getBoundingClientRect());
 
     if (rect) {
@@ -78,9 +85,10 @@ function onDragStart(context: DragAndDropContext, event: MouseEvent) {
             vTable,
             currentCells,
             nextCells,
+            initialX: event.pageX,
         };
     } else {
-        return { vTable, currentCells: [], nextCells: [] }; // Just a fallback
+        return { vTable, currentCells: [], nextCells: [], initialX: 0 }; // Just a fallback
     }
 }
 
@@ -91,19 +99,22 @@ function onDraggingHorizontal(
     deltaX: number,
     deltaY: number
 ) {
-    const { td, sizeTransformer } = context;
+    const { td, zoomScale } = context;
     const { vTable } = initValue;
 
     vTable.table.removeAttribute('height');
-    vTable.table.style.height = null;
+    vTable.table.style.setProperty('height', null);
     vTable.forEachCellOfCurrentRow(cell => {
         if (cell.td) {
-            cell.td.style.height =
-                cell.td == td ? `${sizeTransformer(cell.height) + deltaY}px` : null;
+            cell.td.style.setProperty(
+                'height',
+                cell.td == td ? `${(cell.height ?? 0) / zoomScale + deltaY}px` : null
+            );
         }
     });
 
-    vTable.writeBack();
+    // To avoid apply format styles when the table is being resizing, the skipApplyFormat is set to true.
+    vTable.writeBack(true /**skipApplyFormat*/);
     return true;
 }
 
@@ -111,13 +122,12 @@ function onDraggingVertical(
     context: DragAndDropContext,
     event: MouseEvent,
     initValue: DragAndDropInitValue,
-    deltaX: number,
-    deltaY: number
+    deltaX: number
 ) {
-    const { isRTL, sizeTransformer } = context;
-    const { vTable, nextCells, currentCells } = initValue;
+    const { isRTL, zoomScale } = context;
+    const { vTable, nextCells, currentCells, initialX } = initValue;
 
-    if (!canResizeColumns(event.pageX, currentCells, nextCells, isRTL, sizeTransformer)) {
+    if (!canResizeColumns(event.pageX, currentCells, nextCells, isRTL, zoomScale)) {
         return false;
     }
 
@@ -128,7 +138,7 @@ function onDraggingVertical(
     const isShiftPressed = event.shiftKey;
 
     if (isLastCell || isShiftPressed) {
-        vTable.table.style.width = null;
+        vTable.table.style.setProperty('width', null);
     }
 
     const newWidthList = new Map<HTMLTableCellElement, number>();
@@ -139,7 +149,7 @@ function onDraggingVertical(
             td.style.wordBreak = 'break-word';
             td.style.whiteSpace = 'normal';
             td.style.boxSizing = 'border-box';
-            const newWidth = sizeTransformer(getHorizontalDistance(rect, event.pageX, !isRTL));
+            const newWidth = getHorizontalDistance(rect, event.pageX, !isRTL) / zoomScale;
             newWidthList.set(td, newWidth);
         }
     });
@@ -148,14 +158,16 @@ function onDraggingVertical(
     });
     if (!isShiftPressed) {
         nextCells.forEach(td => {
+            const width = td.rowSpan > 1 ? 0 : td.getBoundingClientRect().right - initialX;
             td.style.wordBreak = 'break-word';
             td.style.whiteSpace = 'normal';
             td.style.boxSizing = 'border-box';
-            td.style.width = null;
+            td.style.width = td.rowSpan > 1 ? '' : width / zoomScale - deltaX + 'px';
         });
     }
 
-    vTable.writeBack();
+    // To avoid apply format styles when the table is being resizing, the skipApplyFormat is set to true.
+    vTable.writeBack(true /**skipApplyFormat*/);
     return true;
 }
 
@@ -196,13 +208,13 @@ function canResizeColumns(
     currentCells: HTMLTableCellElement[],
     nextCells: HTMLTableCellElement[],
     isRTL: boolean,
-    sizeTransformer: SizeTransformer
+    zoomScale: number
 ) {
     for (let i = 0; i < currentCells.length; i++) {
         const td = currentCells[i];
         const rect = normalizeRect(td.getBoundingClientRect());
         if (rect) {
-            const width = sizeTransformer(getHorizontalDistance(rect, newPos, !isRTL));
+            const width = getHorizontalDistance(rect, newPos, !isRTL) / zoomScale;
             if (width < MIN_CELL_WIDTH) {
                 return false;
             }
@@ -216,7 +228,7 @@ function canResizeColumns(
             const rect = normalizeRect(td.getBoundingClientRect());
 
             if (rect) {
-                width = sizeTransformer(getHorizontalDistance(rect, newPos, isRTL));
+                width = getHorizontalDistance(rect, newPos, isRTL) / zoomScale;
             }
         }
 

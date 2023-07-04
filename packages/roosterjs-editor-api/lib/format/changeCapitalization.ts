@@ -1,6 +1,7 @@
 import applyInlineStyle from '../utils/applyInlineStyle';
 import { Capitalization, IEditor, NodeType } from 'roosterjs-editor-types';
 import { getFirstLeafNode, getNextLeafSibling } from 'roosterjs-editor-dom';
+import type { CompatibleCapitalization } from 'roosterjs-editor-types/lib/compatibleTypes';
 
 /**
  * Change the capitalization of text in the selection
@@ -12,22 +13,36 @@ import { getFirstLeafNode, getNextLeafSibling } from 'roosterjs-editor-dom';
  */
 export default function changeCapitalization(
     editor: IEditor,
-    capitalization: Capitalization,
+    capitalization: Capitalization | CompatibleCapitalization,
     language?: string
 ) {
-    applyInlineStyle(editor, element => {
-        for (let node = getFirstLeafNode(element); node; node = getNextLeafSibling(element, node)) {
-            if (node.nodeType == NodeType.Text) {
-                try {
-                    node.textContent = getCapitalizedText(node.textContent, language);
-                } catch {
-                    node.textContent = getCapitalizedText(node.textContent, undefined);
+    applyInlineStyle(
+        editor,
+        element => {
+            for (
+                let node = getFirstLeafNode(element);
+                node;
+                node = getNextLeafSibling(element, node)
+            ) {
+                if (node.nodeType == NodeType.Text) {
+                    try {
+                        node.textContent = getCapitalizedText(node.textContent, language);
+                    } catch {
+                        node.textContent = getCapitalizedText(node.textContent, undefined);
+                    }
                 }
             }
-        }
-    });
+        },
+        'changeCapitalization'
+    );
 
-    function getCapitalizedText(originalText: string, language: string): string {
+    function getCapitalizedText(
+        originalText: string | null,
+        language: string | undefined
+    ): string | null {
+        if (originalText === null) {
+            return originalText;
+        }
         switch (capitalization) {
             case Capitalization.Lowercase:
                 return originalText.toLocaleLowerCase(language);
@@ -52,6 +67,8 @@ export default function changeCapitalization(
                 return originalText.toLocaleLowerCase(language).replace(regex, match => {
                     return match.toLocaleUpperCase(language);
                 });
+            default:
+                return originalText;
         }
     }
 }

@@ -1,9 +1,12 @@
 import BlockElement from './BlockElement';
 import ClipboardData from './ClipboardData';
+import ContentChangedData from './ContentChangedData';
+import DarkColorHandler from './DarkColorHandler';
 import DefaultFormat from './DefaultFormat';
 import IContentTraverser from './IContentTraverser';
 import IPositionContentSearcher from './IPositionContentSearcher';
 import NodePosition from './NodePosition';
+import Rect from './Rect';
 import Region from './Region';
 import SelectionPath from './SelectionPath';
 import TableSelection from './TableSelection';
@@ -12,18 +15,25 @@ import { ContentPosition } from '../enum/ContentPosition';
 import { DOMEventHandler } from '../type/domEventHandler';
 import { EditorUndoState, PendableFormatState, StyleBasedFormatState } from './FormatState';
 import { ExperimentalFeatures } from '../enum/ExperimentalFeatures';
+import { GenericContentEditFeature } from './ContentEditFeature';
 import { GetContentMode } from '../enum/GetContentMode';
 import { InsertOption } from './InsertOption';
 import { PluginEvent } from '../event/PluginEvent';
 import { PluginEventData, PluginEventFromType } from '../event/PluginEventData';
-import { PluginEventType } from '../event/PluginEventType';
-import { PluginKeyboardEvent } from '../event/PluginDomEvent';
+import { PluginEventType } from '../enum/PluginEventType';
 import { PositionType } from '../enum/PositionType';
 import { QueryScope } from '../enum/QueryScope';
 import { RegionType } from '../enum/RegionType';
 import { SelectionRangeEx } from './SelectionRangeEx';
 import { SizeTransformer } from '../type/SizeTransformer';
 import { TrustedHTMLHandler } from '../type/TrustedHTMLHandler';
+import type { CompatiblePluginEventType } from '../compatibleEnum/PluginEventType';
+import type { CompatibleChangeSource } from '../compatibleEnum/ChangeSource';
+import type { CompatibleContentPosition } from '../compatibleEnum/ContentPosition';
+import type { CompatibleExperimentalFeatures } from '../compatibleEnum/ExperimentalFeatures';
+import type { CompatibleGetContentMode } from '../compatibleEnum/GetContentMode';
+import type { CompatibleQueryScope } from '../compatibleEnum/QueryScope';
+import type { CompatibleRegionType } from '../compatibleEnum/RegionType';
 
 /**
  * Interface of roosterjs editor object
@@ -75,14 +85,14 @@ export default interface IEditor {
      * @param node The node to create InlineElement
      * @returns The BlockElement result
      */
-    getBlockElementAtNode(node: Node): BlockElement;
+    getBlockElementAtNode(node: Node): BlockElement | null;
 
     /**
      * Check if the node falls in the editor content
      * @param node The node to check
      * @returns True if the given node is in editor content, otherwise false
      */
-    contains(node: Node): boolean;
+    contains(node: Node | null): boolean;
 
     /**
      * Check if the range falls in the editor content
@@ -122,7 +132,7 @@ export default interface IEditor {
      */
     queryElements<T extends keyof HTMLElementTagNameMap>(
         tag: T,
-        scope: QueryScope,
+        scope: QueryScope | CompatibleQueryScope,
         forEachCallback?: (node: HTMLElementTagNameMap[T]) => any
     ): HTMLElementTagNameMap[T][];
 
@@ -135,7 +145,7 @@ export default interface IEditor {
      */
     queryElements<T extends HTMLElement = HTMLElement>(
         selector: string,
-        scope: QueryScope,
+        scope: QueryScope | CompatibleQueryScope,
         forEachCallback?: (node: T) => any
     ): T[];
 
@@ -168,7 +178,7 @@ export default interface IEditor {
      * @param mode specify what kind of HTML content to retrieve
      * @returns HTML string representing current editor content
      */
-    getContent(mode?: GetContentMode): string;
+    getContent(mode?: GetContentMode | CompatibleGetContentMode): string;
 
     /**
      * Set HTML content to this editor. All existing content will be replaced. A ContentChanged event will be triggered
@@ -191,7 +201,7 @@ export default interface IEditor {
     /**
      * Delete selected content
      */
-    deleteSelectedContent(): NodePosition;
+    deleteSelectedContent(): NodePosition | null;
 
     /**
      * Paste into editor using a clipboardData object
@@ -199,8 +209,14 @@ export default interface IEditor {
      * @param pasteAsText Force pasting as plain text. Default value is false
      * @param applyCurrentStyle True if apply format of current selection to the pasted content,
      * false to keep original format.  Default value is false. When pasteAsText is true, this parameter is ignored
+     * @param pasteAsImage: When set to true, if the clipboardData contains a imageDataUri will paste the image to the editor
      */
-    paste(clipboardData: ClipboardData, pasteAsText?: boolean, applyCurrentFormat?: boolean): void;
+    paste(
+        clipboardData: ClipboardData,
+        pasteAsText?: boolean,
+        applyCurrentFormat?: boolean,
+        pasteAsImage?: boolean
+    ): void;
 
     //#endregion
 
@@ -213,7 +229,7 @@ export default interface IEditor {
      * Default value is true
      * @returns current selection range, or null if editor never got focus before
      */
-    getSelectionRange(tryGetFromCache?: boolean): Range;
+    getSelectionRange(tryGetFromCache?: boolean): Range | null;
 
     /**
      * Get current selection range from Editor.
@@ -227,7 +243,7 @@ export default interface IEditor {
      * It does a live pull on the selection, if nothing retrieved, return whatever we have in cache.
      * @returns current selection path, or null if editor never got focus before
      */
-    getSelectionPath(): SelectionPath;
+    getSelectionPath(): SelectionPath | null;
 
     /**
      * Check if focus is in editor now
@@ -252,7 +268,7 @@ export default interface IEditor {
      * @param position The position to select
      * @returns True if content is selected, otherwise false
      */
-    select(position: NodePosition): boolean;
+    select(position: NodePosition | null): boolean;
 
     /**
      * Select content by a start and end position
@@ -302,14 +318,20 @@ export default interface IEditor {
     /**
      * Select content using the Table Selection
      * @param table to select
-     * @param coordinates first and last cell of the range
+     * @param coordinates first and last cell of the range, if null is provided will remove the selection on the table
      */
-    select(table: HTMLTableElement, coordinates: TableSelection): boolean;
+    select(table: HTMLTableElement, coordinates: TableSelection | null): boolean;
+
+    /**
+     * Select content SelectionRangeEx
+     * @param rangeEx SelectionRangeEx object to specify what to select
+     */
+    select(rangeEx: SelectionRangeEx): boolean;
 
     /**
      * Get current focused position. Return null if editor doesn't have focus at this time.
      */
-    getFocusedPosition(): NodePosition;
+    getFocusedPosition(): NodePosition | null;
 
     /**
      * Get an HTML element from current cursor position.
@@ -323,7 +345,11 @@ export default interface IEditor {
      * @param event Optional, if specified, editor will try to get cached result from the event object first.
      * If it is not cached before, query from DOM and cache the result into the event object
      */
-    getElementAtCursor(selector?: string, startFrom?: Node, event?: PluginEvent): HTMLElement;
+    getElementAtCursor(
+        selector?: string,
+        startFrom?: Node,
+        event?: PluginEvent
+    ): HTMLElement | null;
 
     /**
      * Check if this position is at beginning of the editor.
@@ -336,7 +362,7 @@ export default interface IEditor {
     /**
      * Get impacted regions from selection
      */
-    getSelectedRegions(type?: RegionType): Region[];
+    getSelectedRegions(type?: RegionType | CompatibleRegionType): Region[];
 
     //#endregion
 
@@ -368,7 +394,7 @@ export default interface IEditor {
      * @returns the event object which is really passed into plugins. Some plugin may modify the event object so
      * the result of this function provides a chance to read the modified result
      */
-    triggerPluginEvent<T extends PluginEventType>(
+    triggerPluginEvent<T extends PluginEventType | CompatiblePluginEventType>(
         eventType: T,
         data: PluginEventData<T>,
         broadcast?: boolean
@@ -379,7 +405,10 @@ export default interface IEditor {
      * @param source Source of this event, by default is 'SetContent'
      * @param data additional data for this event
      */
-    triggerContentChangedEvent(source?: ChangeSource | string, data?: any): void;
+    triggerContentChangedEvent(
+        source?: ChangeSource | CompatibleChangeSource | string,
+        data?: any
+    ): void;
 
     //#endregion
 
@@ -404,11 +433,13 @@ export default interface IEditor {
      * @param changeSource The change source to use when fire ContentChangedEvent. When the value is not null,
      * a ContentChangedEvent will be fired with change source equal to this value
      * @param canUndoByBackspace True if this action can be undone when user presses Backspace key (aka Auto Complete).
+     * @param additionalData Optional parameter to provide additional data related to the ContentChanged Event.
      */
     addUndoSnapshot(
-        callback?: (start: NodePosition, end: NodePosition) => any,
-        changeSource?: ChangeSource | string,
-        canUndoByBackspace?: boolean
+        callback?: (start: NodePosition | null, end: NodePosition | null) => any,
+        changeSource?: ChangeSource | CompatibleChangeSource | string,
+        canUndoByBackspace?: boolean,
+        additionalData?: ContentChangedData
     ): void;
 
     /**
@@ -461,21 +492,26 @@ export default interface IEditor {
 
     /**
      * Get a content traverser for current selection
+     * @returns A content traverser, or null if editor never got focus before and no range is provided
      */
-    getSelectionTraverser(range?: Range): IContentTraverser;
+    getSelectionTraverser(range?: Range): IContentTraverser | null;
 
     /**
      * Get a content traverser for current block element start from specified position
      * @param startFrom Start position of the traverser. Default value is ContentPosition.SelectionStart
+     * @returns A content traverser, or null if editor never got focus before
      */
-    getBlockTraverser(startFrom?: ContentPosition): IContentTraverser;
+    getBlockTraverser(
+        startFrom?: ContentPosition | CompatibleContentPosition
+    ): IContentTraverser | null;
 
     /**
      * Get a text traverser of current selection
      * @param event Optional, if specified, editor will try to get cached result from the event object first.
      * If it is not cached before, query from DOM and cache the result into the event object
+     * @returns A content traverser, or null if editor never got focus before
      */
-    getContentSearcherOfCursor(event?: PluginEvent): IPositionContentSearcher;
+    getContentSearcherOfCursor(event?: PluginEvent | null): IPositionContentSearcher | null;
 
     /**
      * Run a callback function asynchronously
@@ -489,28 +525,36 @@ export default interface IEditor {
      * @param name Name of the attribute
      * @param value Value of the attribute
      */
-    setEditorDomAttribute(name: string, value: string): void;
+    setEditorDomAttribute(name: string, value: string | null): void;
 
     /**
-     * Get DOM attribute of editor content DIV
+     * Get DOM attribute of editor content DIV, null if there is no such attribute.
      * @param name Name of the attribute
      */
-    getEditorDomAttribute(name: string): string;
+    getEditorDomAttribute(name: string): string | null;
 
     /**
+     * @deprecated Use getVisibleViewport() instead
+     *
      * Get current relative distance from top-left corner of the given element to top-left corner of editor content DIV.
      * @param element The element to calculate from. If the given element is not in editor, return value will be null
      * @param addScroll When pass true, The return value will also add scrollLeft and scrollTop if any. So the value
      * may be different than what user is seeing from the view. When pass false, scroll position will be ignored.
      * @returns An [x, y] array which contains the left and top distances, or null if the given element is not in editor.
      */
-    getRelativeDistanceToEditor(element: HTMLElement, addScroll?: boolean): number[];
+    getRelativeDistanceToEditor(element: HTMLElement, addScroll?: boolean): number[] | null;
 
     /**
      * Add a Content Edit feature.
      * @param feature The feature to add
      */
     addContentEditFeature(feature: GenericContentEditFeature<PluginEvent>): void;
+
+    /**
+     * Remove a Content Edit feature.
+     * @param feature The feature to remove
+     */
+    removeContentEditFeature(feature: GenericContentEditFeature<PluginEvent>): void;
 
     /**
      * Get style based format state from current selection, including font name/size and colors
@@ -548,6 +592,17 @@ export default interface IEditor {
     isDarkMode(): boolean;
 
     /**
+     * Transform the given node and all its child nodes to dark mode color if editor is in dark mode
+     * @param node The node to transform
+     */
+    transformToDarkColor(node: Node): void;
+
+    /**
+     * Get a darkColorHandler object for this editor.
+     */
+    getDarkColorHandler(): DarkColorHandler;
+
+    /**
      * Make the editor in "Shadow Edit" mode.
      * In Shadow Edit mode, all format change will finally be ignored.
      * This can be used for building a live preview feature for format button, to allow user
@@ -571,7 +626,7 @@ export default interface IEditor {
      * Check if the given experimental feature is enabled
      * @param feature The feature to check
      */
-    isFeatureEnabled(feature: ExperimentalFeatures): boolean;
+    isFeatureEnabled(feature: ExperimentalFeatures | CompatibleExperimentalFeatures): boolean;
 
     /**
      * Get a function to convert HTML string to trusted HTML string.
@@ -582,59 +637,28 @@ export default interface IEditor {
     getTrustedHTMLHandler(): TrustedHTMLHandler;
 
     /**
-     * Get a transformer function. It transform the size changes according to current situation.
+     * Get current zoom scale, default value is 1
+     * When editor is put under a zoomed container, need to pass the zoom scale number using EditorOptions.zoomScale
+     * to let editor behave correctly especially for those mouse drag/drop behaviors
+     * @returns current zoom scale number
+     */
+    getZoomScale(): number;
+
+    /**
+     * Set current zoom scale, default value is 1
+     * When editor is put under a zoomed container, need to pass the zoom scale number using EditorOptions.zoomScale
+     * to let editor behave correctly especially for those mouse drag/drop behaviors
+     */
+    setZoomScale(scale: number): void;
+
+    /**
+     * @deprecated Use getZoomScale() instead
      */
     getSizeTransformer(): SizeTransformer;
 
+    /**
+     * Retrieves the rect of the visible viewport of the editor.
+     */
+    getVisibleViewport(): Rect | null;
     //#endregion
-}
-
-// Temporarily put these interfaces here to workaround circular dependency issue
-// Need to revisit these interfaces later.
-
-/**
- * Generic ContentEditFeature interface
- */
-export interface GenericContentEditFeature<TEvent extends PluginEvent> {
-    /**
-     * Keys of this edit feature to handle
-     */
-    keys: number[];
-
-    /**
-     * Check if the event should be handled by this edit feature
-     * @param event The plugin event to check
-     * @param editor The editor object
-     * @param ctrlOrMeta If Ctrl key (for Windows) or Meta key (for Mac) is pressed
-     */
-    shouldHandleEvent: (event: TEvent, editor: IEditor, ctrlOrMeta: boolean) => any;
-
-    /**
-     * Handle this event
-     * @param event The event to handle
-     * @param editor The editor object
-     */
-    handleEvent: (event: TEvent, editor: IEditor) => any;
-
-    /**
-     * Whether function keys (Ctrl/Meta or Alt) is allowed for this edit feature, default value is false.
-     * When set to false, this edit feature won't be triggered if user has pressed Ctrl/Meta/Alt key
-     */
-    allowFunctionKeys?: boolean;
-}
-
-/**
- * ContentEditFeature interface that handles keyboard event
- */
-export type ContentEditFeature = GenericContentEditFeature<PluginKeyboardEvent>;
-
-/**
- * RoosterJs build in content edit feature
- */
-export interface BuildInEditFeature<TEvent extends PluginEvent>
-    extends GenericContentEditFeature<TEvent> {
-    /**
-     * Whether this edit feature is disabled by default
-     */
-    defaultDisabled?: boolean;
 }

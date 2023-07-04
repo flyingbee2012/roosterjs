@@ -43,8 +43,12 @@ export default class FormatStatePlugin extends SidePanePluginImpl<
         this.getComponent(component => component.setFormatState(this.getFormatState()));
     }
 
-    private getFormatState() {
-        const format = this.editor && getFormatState(this.editor);
+    protected getFormatState() {
+        if (!this.editor) {
+            return null;
+        }
+
+        const format = getFormatState(this.editor);
         const position = this.editor && this.editor.getFocusedPosition();
         const rect = position && getPositionRect(position);
         return {

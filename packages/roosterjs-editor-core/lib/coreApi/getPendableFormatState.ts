@@ -1,4 +1,10 @@
-import { contains, getTagOfNode, PendableFormatNames, Position } from 'roosterjs-editor-dom';
+import {
+    contains,
+    getObjectKeys,
+    getTagOfNode,
+    PendableFormatNames,
+    Position,
+} from 'roosterjs-editor-dom';
 import {
     EditorCore,
     GetPendableFormatState,
@@ -22,7 +28,10 @@ export const getPendableFormatState: GetPendableFormatState = (
     const cachedPosition = core.pendingFormatState.pendableFormatPosition?.normalize();
     const currentPosition = range && Position.getStart(range).normalize();
     const isSamePosition =
-        currentPosition && range.collapsed && currentPosition.equalTo(cachedPosition);
+        currentPosition &&
+        cachedPosition &&
+        range.collapsed &&
+        currentPosition.equalTo(cachedPosition);
 
     if (range && cachedPendableFormatState && isSamePosition && !forceGetStateFromDOM) {
         return cachedPendableFormatState;
@@ -38,6 +47,12 @@ const PendableStyleCheckers: Record<
     isBold: (tag, style) =>
         tag == 'B' ||
         tag == 'STRONG' ||
+        tag == 'H1' ||
+        tag == 'H2' ||
+        tag == 'H3' ||
+        tag == 'H4' ||
+        tag == 'H5' ||
+        tag == 'H6' ||
         parseInt(style.fontWeight) >= 700 ||
         ['bold', 'bolder'].indexOf(style.fontWeight) >= 0,
     isUnderline: (tag, style) => tag == 'U' || style.textDecoration.indexOf('underline') >= 0,
@@ -69,14 +84,14 @@ function queryCommandStateFromDOM(
     core: EditorCore,
     currentPosition: NodePosition
 ): PendableFormatState {
-    let node = currentPosition.node;
+    let node: Node | null = currentPosition.node;
     let formatState: PendableFormatState = {};
     let pendableKeys: PendableFormatNames[] = [];
-    while (contains(core.contentDiv, node)) {
+    while (node && contains(core.contentDiv, node)) {
         const tag = getTagOfNode(node);
         const style = node.nodeType == NodeType.Element && (node as HTMLElement).style;
         if (tag && style) {
-            Object.keys(PendableStyleCheckers).forEach((key: PendableFormatNames) => {
+            getObjectKeys(PendableStyleCheckers).forEach(key => {
                 if (!(pendableKeys.indexOf(key) >= 0)) {
                     formatState[key] = formatState[key] || PendableStyleCheckers[key](tag, style);
                     if (CssFalsyCheckers[key](style)) {

@@ -1,6 +1,7 @@
+import VList from '../../lib/list/VList';
 import VListItem from '../../lib/list/VListItem';
+import { BulletListType, ListType, NumberingListType } from 'roosterjs-editor-types';
 import { itChromeOnly, itFirefoxOnly } from 'roosterjs-editor-api/test/TestHelper';
-import { ListType } from 'roosterjs-editor-types';
 
 describe('VListItem.getListType', () => {
     it('set ListType to None', () => {
@@ -279,7 +280,7 @@ describe('VListItem.writeBack', () => {
         runTest(
             ['div', 'ol'],
             [ListType.Ordered, ListType.Unordered],
-            '<ol><ul><li><div></div></li></ul></ol>'
+            '<ol><ul style="list-style-type: circle;"><li><div></div></li></ul></ol>'
         );
     });
 
@@ -287,7 +288,7 @@ describe('VListItem.writeBack', () => {
         runTest(
             ['div', 'ol', 'ol'],
             [ListType.Ordered, ListType.Unordered],
-            '<ol><ol></ol><ul><li><div></div></li></ul></ol>'
+            '<ol><ol></ol><ul style="list-style-type: circle;"><li><div></div></li></ul></ol>'
         );
     });
 
@@ -377,7 +378,7 @@ describe('VListItem.writeBack', () => {
         runTest(
             ['div'],
             [ListType.Ordered, ListType.Unordered],
-            '<ol id="id1" data-test="test"><ul><li><div></div></li></ul></ol>',
+            '<ol id="id1" data-test="test"><ul style="list-style-type: circle;"><li><div></div></li></ul></ol>',
             ol
         );
     });
@@ -404,7 +405,7 @@ describe('VListItem.writeBack', () => {
 
         // Assert
         expect(listStack[0].innerHTML).toBe(
-            '<ol><li style="font-size:14px;font-family:Courier New;color:blue"><span style="font-size: 14px; font-family: Courier New; color: blue;">test</span></li></ol>'
+            '<ol><li style="font-size: 14px; font-family: Courier New; color: blue;"><span style="font-size: 14px; font-family: Courier New; color: blue;">test</span></li></ol>'
         );
     });
 
@@ -432,5 +433,79 @@ describe('VListItem.writeBack', () => {
         expect(listStack[0].innerHTML).toBe(
             '<ol><li style="font-size:14px;font-family:&quot;Courier New&quot;;color:blue"><span style="font-size: 14px; font-family: &quot;Courier New&quot;; color: blue;">test</span></li></ol>'
         );
+    });
+});
+
+describe('VListItem.applyListStyle', () => {
+    function runTest(
+        listType: ListType,
+        orderedStyle: NumberingListType | undefined,
+        unorderedStyle: BulletListType | undefined,
+        marker: string
+    ) {
+        const list =
+            listType === ListType.Unordered
+                ? document.createElement('ul')
+                : document.createElement('ol');
+        document.body.appendChild(list);
+        const li = document.createElement('li');
+        list.appendChild(li);
+        const vList = new VList(list);
+        vList.setListStyleType(orderedStyle, unorderedStyle);
+        vList.items.forEach(item => {
+            const index = vList.getListItemIndex(item.getNode());
+            item.applyListStyle(list, index);
+        });
+        expect(li.style.listStyleType).toBe(marker);
+        document.body.removeChild(list);
+    }
+
+    it('DecimalParenthesis Numbering List', () => {
+        runTest(ListType.Ordered, NumberingListType.DecimalParenthesis, undefined, '"1) "');
+    });
+
+    it('LowerRoman Numbering List', () => {
+        runTest(ListType.Ordered, NumberingListType.LowerRoman, undefined, '"i. "');
+    });
+
+    it('UpperRomanDoubleParenthesis Numbering List', () => {
+        runTest(
+            ListType.Ordered,
+            NumberingListType.UpperRomanDoubleParenthesis,
+            undefined,
+            '"(I) "'
+        );
+    });
+
+    it('LowerAlphaDash Numbering List', () => {
+        runTest(ListType.Ordered, NumberingListType.LowerAlphaDash, undefined, '"a- "');
+    });
+
+    it('UpperAlphaParenthesis Numbering List', () => {
+        runTest(ListType.Ordered, NumberingListType.UpperAlphaParenthesis, undefined, '"A) "');
+    });
+
+    it('LongArrow Bullet List', () => {
+        runTest(ListType.Unordered, undefined, BulletListType.LongArrow, '"➔ "');
+    });
+
+    it('ShortArrow Bullet List', () => {
+        runTest(ListType.Unordered, undefined, BulletListType.ShortArrow, '"➢ "');
+    });
+
+    it('UnfilledArrow Bullet List', () => {
+        runTest(ListType.Unordered, undefined, BulletListType.UnfilledArrow, '"➪ "');
+    });
+
+    it('Dash Bullet List', () => {
+        runTest(ListType.Unordered, undefined, BulletListType.Dash, '"- "');
+    });
+
+    it('Square Bullet List', () => {
+        runTest(ListType.Unordered, undefined, BulletListType.Square, '"∎ "');
+    });
+
+    it('Square Bullet List', () => {
+        runTest(ListType.Unordered, undefined, BulletListType.Hyphen, '"— "');
     });
 });

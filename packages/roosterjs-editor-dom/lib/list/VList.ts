@@ -7,17 +7,28 @@ import Position from '../selection/Position';
 import queryElements from '../utils/queryElements';
 import safeInstanceOf from '../utils/safeInstanceOf';
 import splitParentNode from '../utils/splitParentNode';
-import toArray from '../utils/toArray';
+import toArray from '../jsUtils/toArray';
 import unwrap from '../utils/unwrap';
-import VListItem from './VListItem';
+import VListItem, { ListStyleDefinitionMetadata, ListStyleMetadata } from './VListItem';
 import wrap from '../utils/wrap';
+import { getMetadata, setMetadata } from '../metadata/metadata';
 import {
     Indentation,
     ListType,
     NodePosition,
     PositionType,
     NodeType,
+    Alignment,
+    NumberingListType,
+    BulletListType,
 } from 'roosterjs-editor-types';
+import type {
+    CompatibleAlignment,
+    CompatibleBulletListType,
+    CompatibleIndentation,
+    CompatibleListType,
+    CompatibleNumberingListType,
+} from 'roosterjs-editor-types/lib/compatibleTypes';
 
 /**
  * Represent a bullet or a numbering list
@@ -67,7 +78,7 @@ export default class VList {
      * Create a new instance of VList class
      * @param rootList The root list element, can be either OL or UL tag
      */
-    constructor(private rootList: HTMLOListElement | HTMLUListElement) {
+    constructor(public rootList: HTMLOListElement | HTMLUListElement) {
         if (!rootList) {
             throw new Error('rootList must not be null');
         }
@@ -149,7 +160,7 @@ export default class VList {
      * If there is no order list item, result will be undefined
      */
     getLastItemNumber(): number | undefined {
-        const start = getStart(this.rootList);
+        const start = this.getStart();
 
         return start === undefined
             ? start
@@ -166,8 +177,10 @@ export default class VList {
     /**
      * Write the result back into DOM tree
      * After that, this VList becomes unavailable because we set this.rootList to null
+     *
+     * @param shouldReuseAllAncestorListElements Optional - defaults to false.
      */
-    writeBack() {
+    writeBack(shouldReuseAllAncestorListElements?: boolean) {
         if (!this.rootList) {
             throw new Error('rootList must not be null');
         }
@@ -175,19 +188,24 @@ export default class VList {
         const doc = this.rootList.ownerDocument;
         const listStack: Node[] = [doc.createDocumentFragment()];
         const placeholder = doc.createTextNode('');
-        let start = getStart(this.rootList) || 1;
+        let start = this.getStart() || 1;
         let lastList: Node;
 
         // Use a placeholder to hold the position since the root list may be moved into document fragment later
-        this.rootList.parentNode.replaceChild(placeholder, this.rootList);
+        this.rootList.parentNode!.replaceChild(placeholder, this.rootList);
 
         this.items.forEach(item => {
-            if (item.getNewListStart() && item.getNewListStart() != start) {
+            const newListStart = item.getNewListStart();
+
+            if (newListStart && newListStart != start) {
                 listStack.splice(1, listStack.length - 1);
-                start = item.getNewListStart();
+                start = newListStart;
             }
-            item.writeBack(listStack, this.rootList);
+
+            item.writeBack(listStack, this.rootList, shouldReuseAllAncestorListElements);
             const topList = listStack[1];
+
+            item.applyListStyle(this.rootList, start);
 
             if (safeInstanceOf(topList, 'HTMLOListElement')) {
                 if (lastList != topList) {
@@ -198,7 +216,7 @@ export default class VList {
                     }
                 }
 
-                if (item.getLevel() == 1) {
+                if (item.getLevel() == 1 && !item.isDummy()) {
                     start++;
                 }
             }
@@ -207,11 +225,7 @@ export default class VList {
         });
 
         // Restore the content to the position of placeholder
-        placeholder.parentNode.replaceChild(listStack[0], placeholder);
-
-        // Set rootList to null to avoid this to be called again for the same VList, because
-        // after change the rootList may not be available any more (e.g. outdent all items).
-        this.rootList = null;
+        placeholder.parentNode!.replaceChild(listStack[0], placeholder);
     }
 
     /**
@@ -239,7 +253,11 @@ export default class VList {
      * @param end End position to operate to
      * @param indentation Indent or outdent
      */
-    setIndentation(start: NodePosition, end: NodePosition, indentation: Indentation): void;
+    setIndentation(
+        start: NodePosition,
+        end: NodePosition,
+        indentation: Indentation | CompatibleIndentation
+    ): void;
 
     /**
      * Outdent the give range of this list
@@ -248,27 +266,64 @@ export default class VList {
      * @param indentation Specify to outdent
      * @param softOutdent (Optional) True to make the item to by dummy (no bullet or number) if the item is not dummy,
      * otherwise outdent the item
+     * @param preventItemRemoval (Optional) True to prevent the indentation to remove the bullet when outdenting a first
+     * level list item, by default is false
      */
     setIndentation(
         start: NodePosition,
         end: NodePosition,
-        indentation: Indentation.Decrease,
-        softOutdent?: boolean
+        indentation: Indentation.Decrease | CompatibleIndentation.Decrease,
+        softOutdent?: boolean,
+        preventItemRemoval?: boolean
     ): void;
 
     setIndentation(
         start: NodePosition,
         end: NodePosition,
-        indentation: Indentation,
-        softOutdent?: boolean
+        indentation: Indentation | CompatibleIndentation,
+        softOutdent?: boolean,
+        preventItemRemoval: boolean = false
     ) {
-        this.findListItems(start, end, item =>
+        let shouldAddMargin = false;
+        this.findListItems(start, end, item => {
+            shouldAddMargin = shouldAddMargin || this.items.indexOf(item) == 0;
             indentation == Indentation.Decrease
                 ? softOutdent && !item.isDummy()
                     ? item.setIsDummy(true /*isDummy*/)
-                    : item.outdent()
-                : item.indent()
-        );
+                    : item.outdent(preventItemRemoval)
+                : item.indent();
+        });
+
+        if (shouldAddMargin && preventItemRemoval) {
+            for (let index = 0; index < this.items.length; index++) {
+                this.items[index].addNegativeMargins();
+            }
+        }
+    }
+
+    /**
+     * Set alignment of the given range of this list
+     * @param start Start position to operate from
+     * @param end End position to operate to
+     * @param alignment Align items left, center or right
+     */
+
+    setAlignment(
+        start: NodePosition,
+        end: NodePosition,
+        alignment: Alignment | CompatibleAlignment
+    ) {
+        this.rootList.style.display = 'flex';
+        this.rootList.style.flexDirection = 'column';
+        this.findListItems(start, end, item => {
+            let align = 'start';
+            if (alignment == Alignment.Center) {
+                align = 'center';
+            } else if (alignment == Alignment.Right) {
+                align = 'end';
+            }
+            item.getNode().style.alignSelf = align;
+        });
     }
 
     /**
@@ -279,7 +334,11 @@ export default class VList {
      * @param end End position to operate to
      * @param targetType Target list type
      */
-    changeListType(start: NodePosition, end: NodePosition, targetType: ListType) {
+    changeListType(
+        start: NodePosition,
+        end: NodePosition,
+        targetType: ListType | CompatibleListType
+    ) {
         let needChangeType = false;
 
         this.findListItems(start, end, item => {
@@ -291,21 +350,44 @@ export default class VList {
     }
 
     /**
+     * Change list style of the given range of this list.
+     * If some of the items are not real list item yet, this will make them to be list item with given style
+     * @param orderedStyle The style of ordered list
+     * @param unorderedStyle The style of unordered list
+     */
+    setListStyleType(
+        orderedStyle?: NumberingListType | CompatibleNumberingListType,
+        unorderedStyle?: BulletListType | CompatibleBulletListType
+    ) {
+        const style = getMetadata<ListStyleMetadata>(this.rootList, ListStyleDefinitionMetadata);
+        const styleMetadata = createListStyleMetadata(
+            style,
+            orderedStyle as NumberingListType,
+            unorderedStyle as BulletListType
+        );
+        setMetadata(this.rootList, styleMetadata, ListStyleDefinitionMetadata);
+    }
+
+    /**
      * Append a new item to this VList
      * @param node node of the item to append. If it is not wrapped with LI tag, it will be wrapped
      * @param type Type of this list item, can be ListType.None
      */
-    appendItem(node: Node, type: ListType) {
+    appendItem(node: Node, type: ListType | CompatibleListType) {
         const nodeTag = getTagOfNode(node);
 
         // Change DIV tag to SPAN. Otherwise we cannot create new list item by Enter key in Safari
         if (nodeTag == 'DIV') {
-            node = changeElementTag(<HTMLElement>node, 'LI');
+            node = changeElementTag(<HTMLElement>node, 'LI')!;
         } else if (nodeTag != 'LI') {
             node = wrap(node, 'LI');
         }
 
-        this.items.push(type == ListType.None ? new VListItem(node) : new VListItem(node, type));
+        this.items.push(
+            type == ListType.None
+                ? new VListItem(node)
+                : new VListItem(node, <ListType.Ordered | ListType.Unordered>(<any>type))
+        );
     }
 
     /**
@@ -322,6 +404,55 @@ export default class VList {
             list.items.splice(0, list.items.length);
             list.rootList.parentNode?.removeChild(list.rootList);
         }
+    }
+
+    /**
+     * Get the index of the List Item in the current List
+     * If the root list is:
+     * Ordered list, the listIndex start count is going to be the start property of the OL - 1,
+     * @example For example if we want to find the index of Item 2 in the list below, the returned index is going to be 6
+     *  * ```html
+     * <ol start="5">
+     *   <li>item 1</li>
+     *   <li>item 2</li> <!-- Node to find -->
+     *   <li>item 3</li>
+     * </ol>
+     * ```
+     * Unordered list, the listIndex start count starts from 0
+     * @example For example if we want to find the index of Item 2 in the list below, the returned index is going to be 2
+     * ```html
+     * <ul>
+     *   <li>item 1</li>
+     *   <li>item 2</li> <!-- Node to find -->
+     *   <li>item 3</li>
+     * </ul>
+     * ```
+     * @param input List item to find in the root list
+     */
+    getListItemIndex(input: Node) {
+        if (this.items) {
+            let listIndex = (this.getStart() || 1) - 1;
+
+            for (let index = 0; index < this.items.length; index++) {
+                const child = this.items[index];
+                if (child.getLevel() == 1 && !child.isDummy()) {
+                    listIndex++;
+                }
+
+                if (child.getNode() == input) {
+                    return listIndex;
+                }
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Get the Start property of the root list of this VList
+     * @returns Start number of the list
+     */
+    getStart(): number | undefined {
+        return safeInstanceOf(this.rootList, 'HTMLOListElement') ? this.rootList.start : undefined;
     }
 
     private findListItems(
@@ -361,7 +492,12 @@ export default class VList {
 
     private populateItems(
         list: HTMLOListElement | HTMLUListElement,
-        listTypes: (ListType.Ordered | ListType.Unordered)[] = []
+        listTypes: (
+            | ListType.Ordered
+            | ListType.Unordered
+            | CompatibleListType.Ordered
+            | CompatibleListType.Unordered
+        )[] = []
     ) {
         const type = getListTypeFromNode(list);
         const items = toArray(list.childNodes);
@@ -371,7 +507,7 @@ export default class VList {
 
             if (isListElement(item)) {
                 this.populateItems(item, newListTypes);
-            } else if (item.nodeType != NodeType.Text || item.nodeValue.trim() != '') {
+            } else if (item.nodeType != NodeType.Text || (item.nodeValue || '').trim() != '') {
                 this.items.push(new VListItem(item, ...newListTypes));
             }
         });
@@ -384,8 +520,8 @@ export default class VList {
 // e.g.
 // From: <ul><li>line 1</li>line 2</ul>
 // To:   <ul><li>line 1<div>line 2</div></li></ul>
-function moveChildNodesToLi(list: HTMLOListElement | HTMLUListElement) {
-    let currentItem: HTMLLIElement = null;
+function moveChildNodesToLi(list: HTMLElement) {
+    let currentItem: HTMLLIElement | null = null;
 
     toArray(list.childNodes).forEach(child => {
         if (getTagOfNode(child) == 'LI') {
@@ -402,10 +538,10 @@ function moveChildNodesToLi(list: HTMLOListElement | HTMLUListElement) {
 // e.g.
 // From: <ul><li>line 1<li>line 2</li>line 3</li></ul>
 // To:   <ul><li>line 1</li><li>line 2<div>line 3</div></li></ul>
-function moveLiToList(li: HTMLLIElement) {
+function moveLiToList(li: HTMLElement) {
     while (!isListElement(li.parentNode)) {
         splitParentNode(li, true /*splitBefore*/);
-        let furtherNodes: Node[] = toArray(li.parentNode.childNodes).slice(1);
+        let furtherNodes: Node[] = toArray(li.parentNode!.childNodes).slice(1);
 
         if (furtherNodes.length > 0) {
             if (!isBlockElement(furtherNodes[0])) {
@@ -414,10 +550,29 @@ function moveLiToList(li: HTMLLIElement) {
             furtherNodes.forEach(node => li.appendChild(node));
         }
 
-        unwrap(li.parentNode);
+        unwrap(li.parentNode!);
     }
 }
 
-function getStart(list: HTMLOListElement | HTMLUListElement): number | undefined {
-    return safeInstanceOf(list, 'HTMLOListElement') ? list.start : undefined;
+function getValidValue<T>(...values: (T | undefined)[]): T | undefined {
+    return values.filter(x => x !== undefined)[0];
+}
+
+function createListStyleMetadata(
+    style: ListStyleMetadata | null,
+    orderedStyle?: NumberingListType | CompatibleNumberingListType,
+    unorderedStyle?: BulletListType | CompatibleBulletListType
+): ListStyleMetadata {
+    return {
+        orderedStyleType: getValidValue(
+            orderedStyle,
+            style?.orderedStyleType,
+            NumberingListType.Decimal
+        ),
+        unorderedStyleType: getValidValue(
+            unorderedStyle,
+            style?.unorderedStyleType,
+            BulletListType.Disc
+        ),
+    };
 }

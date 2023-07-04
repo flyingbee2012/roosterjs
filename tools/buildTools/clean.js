@@ -1,11 +1,12 @@
 'use strict';
 
+const path = require('path');
 const rimraf = require('rimraf');
-const { distPath } = require('./common');
+const { distPath, compatibleEnumPath } = require('./common');
 
-async function clean() {
+async function cleanDir(dirName) {
     await new Promise((resolve, reject) => {
-        rimraf(distPath, err => {
+        rimraf(dirName, err => {
             if (err) {
                 reject(err);
             } else {
@@ -13,6 +14,11 @@ async function clean() {
             }
         });
     });
+}
+
+async function clean() {
+    await cleanDir(distPath);
+    await cleanDir(compatibleEnumPath);
 }
 
 module.exports = {

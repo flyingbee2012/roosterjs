@@ -1,5 +1,7 @@
+import applyListItemStyleWrap from '../utils/applyListItemWrap';
 import blockFormat from '../utils/blockFormat';
 import execCommand from '../utils/execCommand';
+import formatUndoSnapshot from '../utils/formatUndoSnapshot';
 import setBackgroundColor from './setBackgroundColor';
 import setFontName from './setFontName';
 import setFontSize from './setFontSize';
@@ -16,6 +18,7 @@ import {
 } from 'roosterjs-editor-types';
 import {
     collapseNodesInRegion,
+    getObjectKeys,
     getSelectedBlockElementsInRegion,
     getStyles,
     getTagOfNode,
@@ -23,6 +26,7 @@ import {
     isNodeInRegion,
     isVoidHtmlElement,
     PartialInlineElement,
+    NodeInlineElement,
     safeInstanceOf,
     setStyles,
     splitBalancedNodeRange,
@@ -30,12 +34,13 @@ import {
     unwrap,
     wrap,
 } from 'roosterjs-editor-dom';
+import type { CompatibleClearFormatMode } from 'roosterjs-editor-types/lib/compatibleTypes';
 
 const STYLES_TO_REMOVE = ['font', 'text-decoration', 'color', 'background'];
 const TAGS_TO_UNWRAP = 'B,I,U,STRONG,EM,SUB,SUP,STRIKE,FONT,CENTER,H1,H2,H3,H4,H5,H6,UL,OL,LI,SPAN,P,BLOCKQUOTE,CODE,S,PRE'.split(
     ','
 );
-const ATTRIBUTES_TO_PRESERVE = ['href', 'src'];
+const ATTRIBUTES_TO_PRESERVE = ['href', 'src', 'cellpadding', 'cellspacing'];
 const TAGS_TO_STOP_UNWRAP = ['TD', 'TH', 'TR', 'TABLE', 'TBODY', 'THEAD'];
 
 /**
@@ -44,12 +49,12 @@ const TAGS_TO_STOP_UNWRAP = ['TD', 'TH', 'TR', 'TABLE', 'TBODY', 'THEAD'];
  */
 function isMultiBlockSelection(editor: IEditor): boolean {
     let transverser = editor.getSelectionTraverser();
-    let blockElement = transverser.currentBlockElement;
+    let blockElement = transverser?.currentBlockElement;
     if (!blockElement) {
         return false;
     }
 
-    let nextBlockElement = transverser.getNextBlockElement();
+    let nextBlockElement = transverser?.getNextBlockElement();
 
     //At least two blocks are selected
     return !!nextBlockElement;
@@ -85,10 +90,13 @@ function clearNodeFormat(node: Node): boolean {
 
 function clearAttribute(element: HTMLElement) {
     const isTableCell = safeInstanceOf(element, 'HTMLTableCellElement');
+    const isTable = safeInstanceOf(element, 'HTMLTableElement');
 
     for (let attr of toArray(element.attributes)) {
         if (isTableCell && attr.name == 'style') {
             removeNonBorderStyles(element);
+        } else if (isTable && attr.name == 'style') {
+            removeNotTableDefaultStyles(element);
         } else if (
             ATTRIBUTES_TO_PRESERVE.indexOf(attr.name.toLowerCase()) < 0 &&
             attr.name.indexOf('data-') != 0
@@ -98,20 +106,65 @@ function clearAttribute(element: HTMLElement) {
     }
 }
 
-function removeNonBorderStyles(element: HTMLElement): Record<string, string> {
+function updateStyles(
+    element: HTMLElement,
+    callbackfn: (
+        value: string,
+        styles: Record<string, string>,
+        result: Record<string, string>
+    ) => void
+) {
     const styles = getStyles(element);
     const result: Record<string, string> = {};
 
-    Object.keys(styles).forEach(name => {
+    getObjectKeys(styles).forEach(style => callbackfn(style, styles, result));
+
+    setStyles(element, styles);
+
+    return result;
+}
+
+function removeNonBorderStyles(element: HTMLElement): Record<string, string> {
+    return updateStyles(element, (name, styles, result) => {
         if (name.indexOf('border') < 0) {
             result[name] = styles[name];
             delete styles[name];
         }
     });
+}
 
-    setStyles(element, styles);
+function removeNotTableDefaultStyles(element: HTMLTableElement) {
+    return updateStyles(element, (name, styles, result) => {
+        if (name != 'border-collapse') {
+            result[name] = styles[name];
+            delete styles[name];
+        }
+    });
+}
 
-    return result;
+/**
+ * Verifies recursively if a node and its parents have any siblings with text content
+ * Ignoring the children of contentDiv and returning true if any node is LI
+ * @returns `true` if this node, and its parents (minus the children of the contentDiv) have no siblings with text content
+ */
+function isNodeWholeBlock(node: Node, editor: IEditor) {
+    let currentNode: ParentNode | Node | null = node;
+    while (currentNode && editor.contains(currentNode.parentNode)) {
+        if (currentNode.nextSibling || currentNode.previousSibling) {
+            if (safeInstanceOf(currentNode, 'HTMLLIElement')) {
+                return true;
+            }
+            let isOnlySiblingWithContent = true;
+            currentNode.parentNode?.childNodes.forEach(node => {
+                if (node != currentNode && node.textContent?.length) {
+                    isOnlySiblingWithContent = false;
+                }
+            });
+            return isOnlySiblingWithContent;
+        }
+        currentNode = currentNode.parentNode;
+    }
+    return true;
 }
 
 /**
@@ -124,8 +177,11 @@ function clearAutoDetectFormat(editor: IEditor) {
     const isMultiBlock = isMultiBlockSelection(editor);
     if (!isMultiBlock) {
         const transverser = editor.getSelectionTraverser();
-        const inlineElement = transverser.currentInlineElement;
-        const isPartial = inlineElement instanceof PartialInlineElement;
+        const inlineElement = transverser?.currentInlineElement;
+        const isPartial =
+            inlineElement instanceof PartialInlineElement ||
+            (inlineElement instanceof NodeInlineElement &&
+                !isNodeWholeBlock(inlineElement.getContainerNode(), editor));
         if (isPartial) {
             clearFormat(editor);
             return;
@@ -140,26 +196,38 @@ function clearAutoDetectFormat(editor: IEditor) {
  * @param editor The editor instance
  */
 function clearBlockFormat(editor: IEditor) {
-    blockFormat(editor, region => {
-        const blocks = getSelectedBlockElementsInRegion(region);
-        let nodes = collapseNodesInRegion(region, blocks);
+    formatUndoSnapshot(
+        editor,
+        () => {
+            blockFormat(editor, region => {
+                const blocks = getSelectedBlockElementsInRegion(region);
+                let nodes = collapseNodesInRegion(region, blocks);
 
-        if (editor.contains(region.rootNode)) {
-            // If there are styles on table cell, wrap all its children and move down all non-border styles.
-            // So that we can preserve styles for unselected blocks as well as border styles for table
-            const nonborderStyles = removeNonBorderStyles(region.rootNode);
-            if (Object.keys(nonborderStyles).length > 0) {
-                const wrapper = wrap(toArray(region.rootNode.childNodes));
-                setStyles(wrapper, nonborderStyles);
-            }
-        }
+                if (editor.contains(region.rootNode)) {
+                    // If there are styles on table cell, wrap all its children and move down all non-border styles.
+                    // So that we can preserve styles for unselected blocks as well as border styles for table
+                    const nonborderStyles = removeNonBorderStyles(region.rootNode);
+                    if (getObjectKeys(nonborderStyles).length > 0) {
+                        const wrapper = wrap(toArray(region.rootNode.childNodes));
+                        setStyles(wrapper, nonborderStyles);
+                    }
+                }
 
-        while (nodes.length > 0 && isNodeInRegion(region, nodes[0].parentNode)) {
-            nodes = [splitBalancedNodeRange(nodes)];
-        }
+                while (
+                    nodes.length > 0 &&
+                    nodes[0].parentNode &&
+                    isNodeInRegion(region, nodes[0].parentNode)
+                ) {
+                    const balancedNodes = splitBalancedNodeRange(nodes);
+                    nodes = balancedNodes ? [balancedNodes] : [];
+                }
 
-        nodes.forEach(clearNodeFormat);
-    });
+                nodes.forEach(clearNodeFormat);
+            });
+            setDefaultFormat(editor);
+        },
+        'clearBlockFormat'
+    );
 }
 
 function clearInlineFormat(editor: IEditor) {
@@ -170,60 +238,95 @@ function clearInlineFormat(editor: IEditor) {
             node.removeAttribute('class')
         );
 
-        const defaultFormat = editor.getDefaultFormat();
-        const isDefaultFormatEmpty = Object.keys(defaultFormat).length === 0;
-        editor.queryElements('[style]', QueryScope.InSelection, node => {
-            STYLES_TO_REMOVE.forEach(style => node.style.removeProperty(style));
+        setDefaultFormat(editor);
 
-            // when default format is empty, keep the HTML minimum by removing style attribute if there's no style
-            // (note: because default format is empty, we're not adding style back in)
-            if (isDefaultFormatEmpty && node.getAttribute('style') === '') {
-                node.removeAttribute('style');
-            }
-        });
+        return 'clearInlineFormat';
+    }, ChangeSource.Format);
+}
 
-        if (!isDefaultFormatEmpty) {
-            if (defaultFormat.fontFamily) {
-                setFontName(editor, defaultFormat.fontFamily);
-            }
-            if (defaultFormat.fontSize) {
-                setFontSize(editor, defaultFormat.fontSize);
-            }
-            if (defaultFormat.textColor) {
-                const setColorIgnoredElements = editor.queryElements<HTMLElement>(
-                    'a *, a',
-                    QueryScope.OnSelection
-                );
+function setDefaultFontWeight(editor: IEditor, fontWeight: string = '400') {
+    applyListItemStyleWrap(
+        editor,
+        'font-weight',
+        element => (element.style.fontWeight = fontWeight),
+        'setDefaultFontWeight'
+    );
+}
 
-                let shouldApplyInlineStyle =
-                    setColorIgnoredElements.length > 0
-                        ? (element: HTMLElement) => setColorIgnoredElements.indexOf(element) == -1
-                        : null;
+function setDefaultFormat(editor: IEditor) {
+    const defaultFormat = editor.getDefaultFormat();
+    const isDefaultFormatEmpty = getObjectKeys(defaultFormat).length === 0;
+    editor.queryElements('[style]', QueryScope.InSelection, node => {
+        const tag = getTagOfNode(node);
+        if (TAGS_TO_STOP_UNWRAP.indexOf(tag) == -1) {
+            removeStyles(tag, node, isDefaultFormatEmpty);
+        } else {
+            node.childNodes.forEach(node => {
+                node.childNodes.forEach(cNode => {
+                    const tag = getTagOfNode(cNode);
+                    if (safeInstanceOf(cNode, 'HTMLElement')) {
+                        removeStyles(tag, cNode, isDefaultFormatEmpty);
+                    }
+                });
+            });
+        }
+    });
 
-                if (defaultFormat.textColors) {
-                    setTextColor(editor, defaultFormat.textColors, shouldApplyInlineStyle);
-                } else {
-                    setTextColor(editor, defaultFormat.textColor, shouldApplyInlineStyle);
-                }
-            }
-            if (defaultFormat.backgroundColor) {
-                if (defaultFormat.backgroundColors) {
-                    setBackgroundColor(editor, defaultFormat.backgroundColors);
-                } else {
-                    setBackgroundColor(editor, defaultFormat.backgroundColor);
-                }
-            }
-            if (defaultFormat.bold) {
-                toggleBold(editor);
-            }
-            if (defaultFormat.italic) {
-                toggleItalic(editor);
-            }
-            if (defaultFormat.underline) {
-                toggleUnderline(editor);
+    if (!isDefaultFormatEmpty) {
+        if (defaultFormat.fontFamily) {
+            setFontName(editor, defaultFormat.fontFamily);
+        }
+        if (defaultFormat.fontSize) {
+            setFontSize(editor, defaultFormat.fontSize);
+        }
+        if (defaultFormat.textColor) {
+            const setColorIgnoredElements = editor.queryElements<HTMLElement>(
+                'a *, a',
+                QueryScope.OnSelection
+            );
+
+            let shouldApplyInlineStyle =
+                setColorIgnoredElements.length > 0
+                    ? (element: HTMLElement) => setColorIgnoredElements.indexOf(element) == -1
+                    : undefined;
+
+            if (defaultFormat.textColors) {
+                setTextColor(editor, defaultFormat.textColors, shouldApplyInlineStyle);
+            } else {
+                setTextColor(editor, defaultFormat.textColor, shouldApplyInlineStyle);
             }
         }
-    }, ChangeSource.Format);
+        if (defaultFormat.backgroundColor) {
+            if (defaultFormat.backgroundColors) {
+                setBackgroundColor(editor, defaultFormat.backgroundColors);
+            } else {
+                setBackgroundColor(editor, defaultFormat.backgroundColor);
+            }
+        }
+        if (defaultFormat.bold) {
+            toggleBold(editor);
+        } else {
+            setDefaultFontWeight(editor);
+        }
+        if (defaultFormat.italic) {
+            toggleItalic(editor);
+        }
+        if (defaultFormat.underline) {
+            toggleUnderline(editor);
+        }
+    }
+}
+
+function removeStyles(tag: string, node: HTMLElement, isDefaultFormatEmpty: boolean) {
+    if (TAGS_TO_STOP_UNWRAP.indexOf(tag) == -1) {
+        STYLES_TO_REMOVE.forEach(style => node.style.removeProperty(style));
+
+        // when default format is empty, keep the HTML minimum by removing style attribute if there's no style
+        // (note: because default format is empty, we're not adding style back in)
+        if (isDefaultFormatEmpty && node.getAttribute('style') === '') {
+            node.removeAttribute('style');
+        }
+    }
 }
 
 /**
@@ -235,7 +338,7 @@ function clearInlineFormat(editor: IEditor) {
  */
 export default function clearFormat(
     editor: IEditor,
-    formatType: ClearFormatMode = ClearFormatMode.Inline
+    formatType: ClearFormatMode | CompatibleClearFormatMode = ClearFormatMode.Inline
 ) {
     switch (formatType) {
         case ClearFormatMode.Inline:

@@ -48,12 +48,12 @@ const UnquoteWhenEnterOnEmptyLine: BuildInEditFeature<PluginKeyboardEvent> = {
     handleEvent: (event, editor) =>
         editor.addUndoSnapshot(
             () => splitQuote(event, editor),
-            null /*changeSource*/,
+            undefined /*changeSource*/,
             true /*canUndoByBackspace*/
         ),
 };
 
-function cacheGetQuoteChild(event: PluginKeyboardEvent, editor: IEditor): Node {
+function cacheGetQuoteChild(event: PluginKeyboardEvent, editor: IEditor): Node | null {
     return cacheGetEventData(event, 'QUOTE_CHILD', () => {
         let quote = editor.getElementAtCursor(STRUCTURED_TAGS);
         if (quote && getTagOfNode(quote) == QUOTE_TAG) {
@@ -75,17 +75,21 @@ function cacheGetQuoteChild(event: PluginKeyboardEvent, editor: IEditor): Node {
 function splitQuote(event: PluginKeyboardEvent, editor: IEditor) {
     editor.addUndoSnapshot(() => {
         let childOfQuote = cacheGetQuoteChild(event, editor);
-        let parent: Node;
-        let shouldClearFormat: boolean;
+        if (!childOfQuote) {
+            return;
+        }
         if (getTagOfNode(childOfQuote) == QUOTE_TAG) {
             childOfQuote = wrap(toArray(childOfQuote.childNodes));
         }
-        parent = splitBalancedNodeRange(childOfQuote);
-        shouldClearFormat = isStyledBlockquote(parent);
-        unwrap(parent);
+        const parent = splitBalancedNodeRange(childOfQuote);
+        const shouldClearFormat = !!parent && isStyledBlockquote(parent);
+        const newParent = parent && unwrap(parent);
         editor.select(childOfQuote, PositionType.Begin);
 
         if (shouldClearFormat) {
+            if (safeInstanceOf(newParent, 'HTMLLIElement')) {
+                newParent.style.removeProperty('color');
+            }
             clearFormat(editor);
         }
     });

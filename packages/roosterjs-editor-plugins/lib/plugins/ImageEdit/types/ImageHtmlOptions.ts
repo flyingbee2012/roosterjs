@@ -19,4 +19,15 @@ export default interface ImageHtmlOptions {
      * Background color of the rotate handle
      */
     rotateHandleBackColor: string;
+
+    /**
+     * Verify if the area of the image is less than 10000px, if yes, don't insert the side handles
+     */
+    isSmallImage: boolean;
+
+    /**
+     * @deprecated this handles are always enabled
+     * Enable resize handles experimental feature
+     */
+    handlesExperimentalFeatures?: boolean;
 }

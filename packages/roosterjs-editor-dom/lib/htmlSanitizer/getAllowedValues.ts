@@ -1,7 +1,8 @@
+import getObjectKeys from '../jsUtils/getObjectKeys';
 import { cloneObject } from './cloneObject';
 import { CssStyleCallbackMap, StringMap } from 'roosterjs-editor-types';
 
-const HTML_TAG_REPLACEMENT: Record<string, string> = {
+const HTML_TAG_REPLACEMENT: Record<string, string | null> = {
     // Allowed tags
     a: '*',
     abbr: '*',
@@ -92,7 +93,6 @@ const HTML_TAG_REPLACEMENT: Record<string, string> = {
     table: '*',
     tbody: '*',
     td: '*',
-    template: '*',
     textarea: '*',
     tfoot: '*',
     th: '*',
@@ -127,6 +127,7 @@ const HTML_TAG_REPLACEMENT: Record<string, string> = {
     slot: null,
     source: null,
     style: null,
+    template: null,
     title: null,
     track: null,
     video: null,
@@ -164,7 +165,6 @@ const DEFAULT_STYLE_VALUES: { [name: string]: string } = {
     'outline-style': 'none',
     'outline-width': '0px',
     overflow: 'visible',
-    'text-decoration': 'none',
     '-webkit-text-stroke-width': '0px',
     'word-wrap': 'break-word',
     'margin-left': '0px',
@@ -190,11 +190,11 @@ const ALLOWED_CSS_CLASSES: string[] = [];
  * @internal
  */
 export function getTagReplacement(
-    additionalReplacements: Record<string, string>
-): Record<string, string> {
+    additionalReplacements: Record<string, string | null> | undefined
+): Record<string, string | null> {
     const result = { ...HTML_TAG_REPLACEMENT };
     const replacements = additionalReplacements || {};
-    Object.keys(replacements).forEach(key => {
+    getObjectKeys(replacements).forEach(key => {
         if (key) {
             result[key.toLowerCase()] = replacements[key];
         }
@@ -206,7 +206,7 @@ export function getTagReplacement(
 /**
  * @internal
  */
-export function getAllowedAttributes(additionalAttributes: string[]): string[] {
+export function getAllowedAttributes(additionalAttributes: string[] | undefined): string[] {
     return unique(ALLOWED_HTML_ATTRIBUTES.concat(additionalAttributes || [])).map(attr =>
         attr.toLocaleLowerCase()
     );
@@ -215,7 +215,9 @@ export function getAllowedAttributes(additionalAttributes: string[]): string[] {
 /**
  * @internal
  */
-export function getAllowedCssClassesRegex(additionalCssClasses: string[]): RegExp {
+export function getAllowedCssClassesRegex(
+    additionalCssClasses: string[] | undefined
+): RegExp | null {
     const patterns = ALLOWED_CSS_CLASSES.concat(additionalCssClasses || []);
     return patterns.length > 0 ? new RegExp(patterns.join('|')) : null;
 }
@@ -223,7 +225,7 @@ export function getAllowedCssClassesRegex(additionalCssClasses: string[]): RegEx
 /**
  * @internal
  */
-export function getDefaultStyleValues(additionalDefaultStyles: StringMap): StringMap {
+export function getDefaultStyleValues(additionalDefaultStyles: StringMap | undefined): StringMap {
     let result = cloneObject(DEFAULT_STYLE_VALUES);
     if (additionalDefaultStyles) {
         Object.keys(additionalDefaultStyles).forEach(name => {
@@ -242,7 +244,9 @@ export function getDefaultStyleValues(additionalDefaultStyles: StringMap): Strin
 /**
  * @internal
  */
-export function getStyleCallbacks(callbacks: CssStyleCallbackMap): CssStyleCallbackMap {
+export function getStyleCallbacks(
+    callbacks: CssStyleCallbackMap | null | undefined
+): CssStyleCallbackMap {
     let result = cloneObject(callbacks);
     result.position = result.position || removeValue;
     result.width = result.width || removeWidthForLiAndDiv;

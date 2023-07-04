@@ -1,6 +1,13 @@
 const path = require('path');
 const devServerPort = 3000;
 
+const externalMap = new Map([
+    ['react', 'React'],
+    ['react-dom', 'ReactDOM'],
+    [/^office-ui-fabric-react(\/.*)?$/, 'FluentUIReact'],
+    [/^@fluentui(\/.*)?$/, 'FluentUIReact'],
+]);
+
 module.exports = {
     entry: path.join(__dirname, './demo/scripts/index.ts'),
     devtool: 'source-map',
@@ -12,7 +19,7 @@ module.exports = {
     },
     resolve: {
         extensions: ['.ts', '.tsx', '.js', '.svg', '.scss', '.'],
-        modules: ['./demo/scripts', 'packages', './node_modules'],
+        modules: ['./demo/scripts', 'packages', 'packages-ui', './node_modules'],
     },
     mode: 'development',
     module: {
@@ -20,6 +27,12 @@ module.exports = {
             {
                 test: /\.tsx?$/,
                 loader: 'ts-loader',
+                options: {
+                    compilerOptions: {
+                        downlevelIteration: true,
+                        importHelpers: true,
+                    },
+                },
             },
             {
                 test: /\.svg$/,
@@ -44,9 +57,16 @@ module.exports = {
             },
         ],
     },
-    externals: {
-        react: 'React',
-        'react-dom': 'ReactDOM',
+    externals: function (context, request, callback) {
+        for (const [key, value] of externalMap) {
+            if (key instanceof RegExp && key.test(request)) {
+                return callback(null, request.replace(key, value));
+            } else if (request === key) {
+                return callback(null, value);
+            }
+        }
+
+        callback();
     },
     watch: true,
     stats: 'minimal',

@@ -2,6 +2,7 @@ import CustomData from '../interface/CustomData';
 import DefaultFormat from '../interface/DefaultFormat';
 import SelectionPath from '../interface/SelectionPath';
 import { ExperimentalFeatures } from '../enum/ExperimentalFeatures';
+import type { CompatibleExperimentalFeatures } from '../compatibleEnum/ExperimentalFeatures';
 
 /**
  * The state object for LifecyclePlugin
@@ -15,7 +16,7 @@ export default interface LifecyclePluginState {
     /**
      * Default format of this editor
      */
-    defaultFormat: DefaultFormat;
+    defaultFormat: DefaultFormat | null;
 
     /**
      * Whether editor is in dark mode
@@ -30,25 +31,35 @@ export default interface LifecyclePluginState {
     /**
      * External content transform function to help do color transform for existing content
      */
-    onExternalContentTransform: (htmlIn: HTMLElement) => void;
+    onExternalContentTransform: ((htmlIn: HTMLElement) => void) | null;
 
     /**
      * Enabled experimental features
      */
-    experimentalFeatures: ExperimentalFeatures[];
+    experimentalFeatures: (ExperimentalFeatures | CompatibleExperimentalFeatures)[];
 
     /**
      * Cached document fragment for original content
      */
-    shadowEditFragment: DocumentFragment;
+    shadowEditFragment: DocumentFragment | null;
+
+    /**
+     * Cached entity pairs for original content
+     */
+    shadowEditEntities: Record<string, HTMLElement> | null;
 
     /**
      * Cached selection path for original content
      */
-    shadowEditSelectionPath: SelectionPath;
+    shadowEditSelectionPath: SelectionPath | null;
 
     /**
      * Cached table selection path for original content
      */
-    shadowEditTableSelectionPath: SelectionPath[];
+    shadowEditTableSelectionPath: SelectionPath[] | null;
+
+    /**
+     * Cached image selection path for original content
+     */
+    shadowEditImageSelectionPath: SelectionPath[] | null;
 }

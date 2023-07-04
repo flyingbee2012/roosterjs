@@ -1,11 +1,14 @@
 import CorePlugins from './CorePlugins';
 import DefaultFormat from './DefaultFormat';
 import EditorPlugin from './EditorPlugin';
+import Rect from './Rect';
+import Snapshot from './Snapshot';
 import UndoSnapshotsService from './UndoSnapshotsService';
 import { CoreApiMap } from './EditorCore';
 import { ExperimentalFeatures } from '../enum/ExperimentalFeatures';
 import { SizeTransformer } from '../type/SizeTransformer';
 import { TrustedHTMLHandler } from '../type/TrustedHTMLHandler';
+import type { CompatibleExperimentalFeatures } from '../compatibleEnum/ExperimentalFeatures';
 
 /**
  * The options to specify parameters customizing an editor, used by ctor of Editor class
@@ -27,9 +30,16 @@ export default interface EditorOptions {
     defaultFormat?: DefaultFormat;
 
     /**
+     * @deprecated Use undoMetadataSnapshotService instead
      * Undo snapshot service. Use this parameter to customize the undo snapshot service.
      */
-    undoSnapshotService?: UndoSnapshotsService;
+    undoSnapshotService?: UndoSnapshotsService<string>;
+
+    /**
+     * Undo snapshot service based on content metadata. Use this parameter to customize the undo snapshot service.
+     * When this property is set, value of undoSnapshotService will be ignored.
+     */
+    undoMetadataSnapshotService?: UndoSnapshotsService<Snapshot>;
 
     /**
      * Initial HTML content
@@ -84,7 +94,7 @@ export default interface EditorOptions {
     /**
      * Specify the enabled experimental features
      */
-    experimentalFeatures?: ExperimentalFeatures[];
+    experimentalFeatures?: (ExperimentalFeatures | CompatibleExperimentalFeatures)[];
 
     /**
      * By default, we will stop propagation of a printable keyboard event
@@ -108,9 +118,24 @@ export default interface EditorOptions {
     trustedHTMLHandler?: TrustedHTMLHandler;
 
     /**
-     * A transformer function. It transform the size changes according to current situation.
-     * A typical scenario to use this function is when editor is located under a scaled container, so we need to
-     * calculate the scaled size change according to current zoom rate.
+     * Current zoom scale, @default value is 1
+     * When editor is put under a zoomed container, need to pass the zoom scale number using this property
+     * to let editor behave correctly especially for those mouse drag/drop behaviors
+     */
+    zoomScale?: number;
+
+    /**
+     * @deprecated Use zoomScale instead
      */
     sizeTransformer?: SizeTransformer;
+
+    /**
+     * Retrieves the visible viewport of the Editor. The default viewport is the Rect of the scrollContainer.
+     */
+    getVisibleViewport?: () => Rect | null;
+
+    /**
+     * Color of the border of a selectedImage. Default color: '#DB626C'
+     */
+    imageSelectionBorderColor?: string;
 }

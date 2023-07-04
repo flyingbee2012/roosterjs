@@ -1,9 +1,20 @@
-import { getTagOfNode, toArray, VTable } from 'roosterjs-editor-dom';
+import addUniqueId from './utils/addUniqueId';
+import {
+    createRange,
+    getTagOfNode,
+    Position,
+    removeGlobalCssStyle,
+    removeImportantStyleRule,
+    setGlobalCssStyles,
+    toArray,
+    VTable,
+} from 'roosterjs-editor-dom';
 import {
     EditorCore,
     SelectionRangeTypes,
     TableSelection,
     SelectTable,
+    PositionType,
     Coordinates,
 } from 'roosterjs-editor-types';
 
@@ -22,16 +33,29 @@ const STYLE_ID = 'tableStyle';
  */
 export const selectTable: SelectTable = (
     core: EditorCore,
-    table: HTMLTableElement,
+    table: HTMLTableElement | null,
     coordinates?: TableSelection
 ) => {
-    unselect(core.contentDiv.ownerDocument);
+    unselect(core);
 
-    if (coordinates && table) {
-        ensureUniqueId(table, TABLE_ID);
-        ensureUniqueId(core.contentDiv, CONTENT_DIV_ID);
+    if (areValidCoordinates(coordinates) && table) {
+        addUniqueId(table, TABLE_ID);
+        addUniqueId(core.contentDiv, CONTENT_DIV_ID);
 
         const ranges = select(core, table, coordinates);
+        if (!isMergedCell(table, coordinates)) {
+            const cellToSelect = table.rows
+                .item(coordinates.firstCell.y)
+                ?.cells.item(coordinates.firstCell.x);
+
+            if (cellToSelect) {
+                core.api.selectRange(
+                    core,
+                    createRange(new Position(cellToSelect, PositionType.Begin))
+                );
+            }
+        }
+
         return {
             type: SelectionRangeTypes.TableSelection,
             ranges,
@@ -49,7 +73,6 @@ function buildCss(
     coordinates: TableSelection,
     contentDivSelector: string
 ): { css: string; ranges: Range[] } {
-    coordinates = normalizeTableSelection(coordinates, table);
     const tr1 = coordinates.firstCell.y;
     const td1 = coordinates.firstCell.x;
     const tr2 = coordinates.lastCell.y;
@@ -58,8 +81,7 @@ function buildCss(
 
     let firstSelected: HTMLTableCellElement | null = null;
     let lastSelected: HTMLTableCellElement | null = null;
-    let css = '';
-    let isFirst = true;
+    const selectors: string[] = [];
 
     const vTable = new VTable(table);
 
@@ -67,7 +89,7 @@ function buildCss(
     const tableChildren = toArray(table.childNodes).filter(
         node => ['THEAD', 'TBODY', 'TFOOT'].indexOf(getTagOfNode(node)) > -1
     );
-    // Set the start and end of each of the table childs, so we can build the selector according the element between the table and the row.
+    // Set the start and end of each of the table children, so we can build the selector according the element between the table and the row.
     let cont = 0;
     const indexes = tableChildren.map(node => {
         const result = {
@@ -80,9 +102,8 @@ function buildCss(
         return result;
     });
 
-    vTable.cells.forEach((row, rowIndex) => {
+    vTable.cells?.forEach((row, rowIndex) => {
         let tdCount = 0;
-        let thCount = 0;
         firstSelected = null;
         lastSelected = null;
 
@@ -96,117 +117,61 @@ function buildCss(
                 : rowIndex + 1;
 
         for (let cellIndex = 0; cellIndex < row.length; cellIndex++) {
-            if (row[cellIndex].td) {
-                const tag = getTagOfNode(row[cellIndex].td);
-
-                if (tag == 'TD') {
-                    tdCount++;
-                }
-                if (tag == 'TH') {
-                    thCount++;
-                }
+            const cell = row[cellIndex].td;
+            if (cell) {
+                const tag = getTagOfNode(cell);
+                tdCount++;
 
                 if (rowIndex >= tr1 && rowIndex <= tr2 && cellIndex >= td1 && cellIndex <= td2) {
-                    if (isFirst) {
-                        isFirst = false;
-                    } else if (!css.endsWith(',')) {
-                        css += ',';
-                    }
+                    removeImportant(cell);
+
                     const selector = generateCssFromCell(
                         contentDivSelector,
                         table.id,
                         middleElSelector,
                         currentRow,
                         tag,
-                        tag == 'TD' ? tdCount : thCount
+                        tdCount
                     );
-                    css += selector;
+                    const elementsSelector = selector + ' *';
+
+                    selectors.push(selector);
+                    selectors.push(elementsSelector);
                     firstSelected = firstSelected || table.querySelector(selector);
-                    lastSelected = table.querySelector(selector)!;
+                    lastSelected = table.querySelector(selector);
                 }
             }
+        }
 
-            if (firstSelected && lastSelected) {
-                const rowRange = new Range();
-                rowRange.setStartBefore(firstSelected);
-                rowRange.setEndAfter(lastSelected);
-                ranges.push(rowRange);
-            }
+        if (firstSelected && lastSelected) {
+            const rowRange = new Range();
+            rowRange.setStartBefore(firstSelected);
+            rowRange.setEndAfter(lastSelected);
+            ranges.push(rowRange);
         }
     });
 
-    css += '{background-color: rgba(198,198,198,0.7) !important;}';
+    const css = selectors.length
+        ? `${selectors.join(
+              ','
+          )} {background-color: rgb(198,198,198) !important; caret-color: transparent}`
+        : '';
 
     return { css, ranges };
 }
 
 function select(core: EditorCore, table: HTMLTableElement, coordinates: TableSelection): Range[] {
-    const doc = core.contentDiv.ownerDocument;
     const contentDivSelector = '#' + core.contentDiv.id;
     let { css, ranges } = buildCss(table, coordinates, contentDivSelector);
-
-    let styleElement = doc.getElementById(STYLE_ID + core.contentDiv.id) as HTMLStyleElement;
-    if (!styleElement) {
-        styleElement = doc.createElement('style');
-        doc.head.appendChild(styleElement);
-        styleElement.id = STYLE_ID + core.contentDiv.id;
-    }
-    styleElement.sheet.insertRule(css);
-
+    setGlobalCssStyles(core.contentDiv.ownerDocument, css, STYLE_ID + core.contentDiv.id);
     return ranges;
 }
 
-function unselect(doc: Document) {
-    let styleElement = doc.getElementById(STYLE_ID + CONTENT_DIV_ID) as HTMLStyleElement;
-    if (styleElement?.sheet?.cssRules) {
-        while (styleElement.sheet.cssRules.length > 0) {
-            styleElement.sheet.deleteRule(0);
-        }
-    }
-}
+const unselect = (core: EditorCore) => {
+    const doc = core.contentDiv.ownerDocument;
+    removeGlobalCssStyle(doc, STYLE_ID + core.contentDiv.id);
+};
 
-/**
- * Make the first Cell of a table selection always be on top of the last cell.
- * @param input Table selection
- * @returns Table Selection where the first cell is always going to be first selected in the table
- * and the last cell always going to be last selected in the table.
- */
-function normalizeTableSelection(input: TableSelection, table: HTMLTableElement): TableSelection {
-    const { firstCell, lastCell } = input;
-
-    let newFirst = {
-        x: Math.min(firstCell.x, lastCell.x),
-        y: Math.min(firstCell.y, lastCell.y),
-    };
-    let newLast = {
-        x: Math.max(firstCell.x, lastCell.x),
-        y: Math.max(firstCell.y, lastCell.y),
-    };
-
-    const checkIfExists = (coord: Coordinates) => table.rows.item(coord.y).cells.item(coord.x);
-
-    if (!checkIfExists(newFirst) || !checkIfExists(newLast)) {
-        throw new Error('Table selection provided is not valid');
-    }
-
-    return { firstCell: newFirst, lastCell: newLast };
-}
-
-function ensureUniqueId(el: HTMLElement, idPrefix: string) {
-    if (el && !el.id) {
-        const doc = el.ownerDocument;
-        const getElement = (doc: Document) => doc.getElementById(idPrefix + cont);
-        let cont = 0;
-        //Ensure that there are no elements with the same ID
-        let element = getElement(doc);
-        while (element) {
-            element = getElement(doc);
-            cont++;
-        }
-
-        el.id = idPrefix + cont;
-    }
-}
 function generateCssFromCell(
     contentDivSelector: string,
     tableId: string,
@@ -228,4 +193,32 @@ function generateCssFromCell(
         index +
         ')'
     );
+}
+
+function removeImportant(cell: HTMLTableCellElement) {
+    if (cell) {
+        removeImportantStyleRule(cell, ['background-color', 'background']);
+    }
+}
+
+function areValidCoordinates(input?: TableSelection): input is TableSelection {
+    if (input) {
+        const { firstCell, lastCell } = input || {};
+        if (firstCell && lastCell) {
+            const handler = (coordinate: Coordinates) =>
+                isValidCoordinate(coordinate.x) && isValidCoordinate(coordinate.y);
+            return handler(firstCell) && handler(lastCell);
+        }
+    }
+
+    return false;
+}
+
+function isValidCoordinate(input: number): boolean {
+    return (!!input || input == 0) && input > -1;
+}
+
+function isMergedCell(table: HTMLTableElement, coordinates: TableSelection): boolean {
+    const { firstCell } = coordinates;
+    return !(table.rows.item(firstCell.y) && table.rows.item(firstCell.y)?.cells.item(firstCell.x));
 }

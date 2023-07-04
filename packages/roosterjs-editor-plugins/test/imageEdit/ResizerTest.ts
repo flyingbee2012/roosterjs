@@ -1,4 +1,4 @@
-import DragAndDropContext, { X, Y } from '../../lib/plugins/ImageEdit/types/DragAndDropContext';
+import DragAndDropContext, { DNDDirectionX, DnDDirectionY } from '../../lib/plugins/ImageEdit/types/DragAndDropContext';
 import ImageEditInfo, { ResizeInfo } from '../../lib/plugins/ImageEdit/types/ImageEditInfo';
 import { ImageEditOptions } from 'roosterjs-editor-types';
 import { Resizer } from '../../lib/plugins/ImageEdit/imageEditors/Resizer';
@@ -12,8 +12,8 @@ describe('Resizer: resize only', () => {
     const initValue: ResizeInfo = { widthPx: 100, heightPx: 200 };
     const mouseEvent: MouseEvent = {} as any;
     const mouseEventShift: MouseEvent = { shiftKey: true } as any;
-    const Xs: X[] = ['w', '', 'e'];
-    const Ys: Y[] = ['n', '', 's'];
+    const Xs: DNDDirectionX[] = ['w', '', 'e'];
+    const Ys: DnDDirectionY[] = ['n', '', 's'];
 
     function getInitEditInfo(): ImageEditInfo {
         return {
@@ -33,7 +33,7 @@ describe('Resizer: resize only', () => {
     function runTest(
         e: MouseEvent,
         getEditInfo: () => ImageEditInfo,
-        expectedResult: Record<X, Record<Y, [number, number]>>
+        expectedResult: Record<DNDDirectionX, Record<DnDDirectionY, [number, number]>>
     ) {
         const actualResult: { [key: string]: { [key: string]: [number, number] } } = {};
         Xs.forEach(x => {
@@ -89,9 +89,9 @@ describe('Resizer: resize only', () => {
                 s: [100, 220],
             },
             e: {
-                n: [90, 180],
+                n: [120, 240],
                 '': [120, 200],
-                s: [110, 220],
+                s: [120, 240],
             },
         });
     });
@@ -144,9 +144,9 @@ describe('Resizer: resize only', () => {
                     s: [100, 207],
                 },
                 e: {
-                    n: [96, 192],
+                    n: [127, 254],
                     '': [127, 200],
-                    s: [103, 207],
+                    s: [127, 254],
                 },
             }
         );

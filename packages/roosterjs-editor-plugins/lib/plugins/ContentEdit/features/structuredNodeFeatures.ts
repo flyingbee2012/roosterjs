@@ -13,6 +13,7 @@ import {
     Position,
     getTagOfNode,
     createElement,
+    getObjectKeys,
 } from 'roosterjs-editor-dom';
 
 const CHILD_PARENT_TAG_MAP: { [childTag: string]: string } = {
@@ -20,7 +21,7 @@ const CHILD_PARENT_TAG_MAP: { [childTag: string]: string } = {
     TH: 'TABLE',
     LI: 'OL,UL',
 };
-const CHILD_SELECTOR = Object.keys(CHILD_PARENT_TAG_MAP).join(',');
+const CHILD_SELECTOR = getObjectKeys(CHILD_PARENT_TAG_MAP).join(',');
 
 /**
  * InsertLineBeforeStructuredNode edit feature, provides the ability to insert an empty line before
@@ -37,7 +38,7 @@ const InsertLineBeforeStructuredNodeFeature: BuildInEditFeature<PluginKeyboardEv
             editor.getDocument()
         ) as HTMLElement;
         editor.addUndoSnapshot(() => {
-            element.parentNode.insertBefore(div, element);
+            element?.parentNode?.insertBefore(div, element);
             // Select the new line when we are in table. This is the same behavior with Word
             if (getTagOfNode(element) == 'TABLE') {
                 editor.select(new Position(div, PositionType.Begin).normalize());

@@ -14,10 +14,11 @@ interface InsertEntityPaneState {
 export default class InsertEntityPane extends React.Component<ApiPaneProps, InsertEntityPaneState> {
     private entityType = React.createRef<HTMLInputElement>();
     private html = React.createRef<HTMLTextAreaElement>();
-    private hydratedHtml = React.createRef<HTMLTextAreaElement>();
     private styleInline = React.createRef<HTMLInputElement>();
     private styleBlock = React.createRef<HTMLInputElement>();
     private isReadonly = React.createRef<HTMLInputElement>();
+    private insertAtRoot = React.createRef<HTMLInputElement>();
+    private focusAfterEntity = React.createRef<HTMLInputElement>();
 
     constructor(props: ApiPaneProps) {
         super(props);
@@ -36,10 +37,6 @@ export default class InsertEntityPane extends React.Component<ApiPaneProps, Inse
                     HTML: <textarea className={styles.textarea} ref={this.html}></textarea>
                 </div>
                 <div>
-                    Hydrated HTML:
-                    <textarea className={styles.textarea} ref={this.hydratedHtml}></textarea>
-                </div>
-                <div>
                     Style:
                     <input
                         type="radio"
@@ -47,12 +44,21 @@ export default class InsertEntityPane extends React.Component<ApiPaneProps, Inse
                         ref={this.styleInline}
                         id="styleInline"
                     />
-                    <label htmlFor="styleInline">Inline</label>{' '}
+                    <label htmlFor="styleInline">Inline</label>
                     <input type="radio" name="entityStyle" ref={this.styleBlock} id="styleBlock" />
                     <label htmlFor="styleBlock">Block</label>
                 </div>
                 <div>
-                    Readonly: <input type="checkbox" ref={this.isReadonly} />
+                    <input id="readonly" type="checkbox" ref={this.isReadonly} />
+                    <label htmlFor="readonly">Readonly </label>
+                </div>
+                <div>
+                    <input id="insertAtRoot" type="checkbox" ref={this.insertAtRoot} />
+                    <label htmlFor="insertAtRoot">Force insert at root of region</label>
+                </div>
+                <div>
+                    <input id="focusAfterEntity" type="checkbox" ref={this.focusAfterEntity} />
+                    <label htmlFor="focusAfterEntity">Focus after entity</label>
                 </div>
                 <div>
                     <button onClick={this.insertEntity}>Insert Entity</button>
@@ -74,12 +80,26 @@ export default class InsertEntityPane extends React.Component<ApiPaneProps, Inse
         const entityType = this.entityType.current.value;
         const node = document.createElement('span');
         node.innerHTML = trustedHTMLHandler(this.html.current.value);
-        node.dataset.hydratedHtml = this.hydratedHtml.current.value.trim();
         const isBlock = this.styleBlock.current.checked;
         const isReadonly = this.isReadonly.current.checked;
+        const insertAtRoot = this.insertAtRoot.current.checked;
+        const focusAfterEntity = this.focusAfterEntity.current.checked;
 
         if (node) {
-            insertEntity(this.props.getEditor(), entityType, node, isBlock, isReadonly);
+            const editor = this.props.getEditor();
+
+            editor.addUndoSnapshot(() => {
+                insertEntity(
+                    editor,
+                    entityType,
+                    node,
+                    isBlock,
+                    isReadonly,
+                    undefined /*position*/,
+                    insertAtRoot,
+                    focusAfterEntity
+                );
+            });
         }
     };
 
@@ -112,9 +132,6 @@ function EntityButton({ entity }: { entity: Entity }) {
             Id: {entity.id}
             <br />
             Readonly: {entity.isReadonly ? 'True' : 'False'}
-            <br />
-            IsShadowEntity: {!!entity.wrapper.shadowRoot}
-            <br />
             <br />
         </div>
     );

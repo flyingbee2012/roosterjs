@@ -17,15 +17,16 @@ const ENTITY_TYPE = 'WATERMARK_WRAPPER';
  * A watermark plugin to manage watermark string for roosterjs
  */
 export default class Watermark implements EditorPlugin {
-    private editor: IEditor;
-    private disposer: () => void;
+    private editor: IEditor | null = null;
+    private disposer: (() => void) | null = null;
+    private format: DefaultFormat;
 
     /**
      * Create an instance of Watermark plugin
      * @param watermark The watermark string
      */
-    constructor(private watermark: string, private format?: DefaultFormat) {
-        this.format = this.format || {
+    constructor(private watermark: string, format?: DefaultFormat, private customClass?: string) {
+        this.format = format || {
             fontSize: '14px',
             textColors: {
                 lightModeColor: '#AAAAAA',
@@ -57,7 +58,7 @@ export default class Watermark implements EditorPlugin {
      * Dispose this plugin
      */
     dispose() {
-        this.disposer();
+        this.disposer?.();
         this.disposer = null;
         this.editor = null;
     }
@@ -75,7 +76,8 @@ export default class Watermark implements EditorPlugin {
             this.showHideWatermark();
         } else if (
             event.eventType == PluginEventType.EntityOperation &&
-            event.entity.type == ENTITY_TYPE
+            event.entity.type == ENTITY_TYPE &&
+            this.editor
         ) {
             const {
                 operation,
@@ -84,13 +86,21 @@ export default class Watermark implements EditorPlugin {
             if (operation == EntityOperation.ReplaceTemporaryContent) {
                 this.removeWatermark(wrapper);
             } else if (event.operation == EntityOperation.NewEntity) {
-                applyFormat(wrapper, this.format, this.editor.isDarkMode());
+                applyFormat(
+                    wrapper,
+                    this.format,
+                    this.editor.isDarkMode(),
+                    this.editor.getDarkColorHandler()
+                );
                 wrapper.spellcheck = false;
             }
         }
     }
 
     private showHideWatermark = () => {
+        if (!this.editor) {
+            return;
+        }
         const hasFocus = this.editor.hasFocus();
         const watermarks = this.editor.queryElements(getEntitySelector(ENTITY_TYPE));
         const isShowing = watermarks.length > 0;
@@ -99,7 +109,7 @@ export default class Watermark implements EditorPlugin {
             watermarks.forEach(this.removeWatermark);
             this.editor.focus();
         } else if (!hasFocus && !isShowing && this.editor.isEmpty()) {
-            insertEntity(
+            const newEntity = insertEntity(
                 this.editor,
                 ENTITY_TYPE,
                 this.editor.getDocument().createTextNode(this.watermark),
@@ -107,6 +117,9 @@ export default class Watermark implements EditorPlugin {
                 false /*isReadonly*/,
                 ContentPosition.Begin
             );
+            if (this.customClass) {
+                newEntity.wrapper.classList.add(this.customClass);
+            }
         }
     };
 
@@ -116,7 +129,8 @@ export default class Watermark implements EditorPlugin {
 
         // After remove watermark node, if it leaves an empty DIV, append a BR node into it to make it a regular empty line
         if (
-            this.editor.contains(parentNode) &&
+            parentNode &&
+            this.editor?.contains(parentNode) &&
             getTagOfNode(parentNode) == 'DIV' &&
             !parentNode.firstChild
         ) {

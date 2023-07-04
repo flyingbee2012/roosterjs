@@ -8,6 +8,7 @@ import SelectionScoper from './SelectionScoper';
 import TraversingScoper from './TraversingScoper';
 import { getInlineElementBeforeAfter } from '../inlineElements/getInlineElementBeforeAfter';
 import { getLeafSibling } from '../utils/getLeafSibling';
+import type { CompatibleContentPosition } from 'roosterjs-editor-types/lib/compatibleTypes';
 import {
     BlockElement,
     ContentPosition,
@@ -23,8 +24,8 @@ import {
  * the current inline element position
  */
 export default class ContentTraverser implements IContentTraverser {
-    private currentInline: InlineElement;
-    private currentBlock: BlockElement;
+    private currentInline: InlineElement | null = null;
+    private currentBlock: BlockElement | null = null;
 
     /**
      * Create a content traverser for the whole body of given root node
@@ -72,7 +73,7 @@ export default class ContentTraverser implements IContentTraverser {
     public static createBlockTraverser(
         rootNode: Node,
         position: NodePosition | Range,
-        start: ContentPosition = ContentPosition.SelectionStart,
+        start: ContentPosition | CompatibleContentPosition = ContentPosition.SelectionStart,
         skipTags?: string[]
     ): IContentTraverser {
         return new ContentTraverser(new SelectionBlockScoper(rootNode, position, start));
@@ -81,7 +82,7 @@ export default class ContentTraverser implements IContentTraverser {
     /**
      * Get current block
      */
-    public get currentBlockElement(): BlockElement {
+    public get currentBlockElement(): BlockElement | null {
         // Prepare currentBlock from the scoper
         if (!this.currentBlock) {
             this.currentBlock = this.scoper.getStartBlockElement();
@@ -93,18 +94,18 @@ export default class ContentTraverser implements IContentTraverser {
     /**
      * Get next block element
      */
-    public getNextBlockElement(): BlockElement {
+    public getNextBlockElement(): BlockElement | null {
         return this.getPreviousNextBlockElement(true /*isNext*/);
     }
 
     /**
      * Get previous block element
      */
-    public getPreviousBlockElement(): BlockElement {
+    public getPreviousBlockElement(): BlockElement | null {
         return this.getPreviousNextBlockElement(false /*isNext*/);
     }
 
-    private getPreviousNextBlockElement(isNext: boolean): BlockElement {
+    private getPreviousNextBlockElement(isNext: boolean): BlockElement | null {
         let current = this.currentBlockElement;
 
         if (!current) {
@@ -139,7 +140,7 @@ export default class ContentTraverser implements IContentTraverser {
     /**
      * Current inline element getter
      */
-    public get currentInlineElement(): InlineElement {
+    public get currentInlineElement(): InlineElement | null {
         // Retrieve a start inline from scoper
         if (!this.currentInline) {
             this.currentInline = this.scoper.getStartInlineElement();
@@ -151,20 +152,20 @@ export default class ContentTraverser implements IContentTraverser {
     /**
      * Get next inline element
      */
-    public getNextInlineElement(): InlineElement {
+    public getNextInlineElement(): InlineElement | null {
         return this.getPreviousNextInlineElement(true /*isNext*/);
     }
 
     /**
      * Get previous inline element
      */
-    public getPreviousInlineElement(): InlineElement {
+    public getPreviousInlineElement(): InlineElement | null {
         return this.getPreviousNextInlineElement(false /*isNext*/);
     }
 
-    private getPreviousNextInlineElement(isNext: boolean): InlineElement {
+    private getPreviousNextInlineElement(isNext: boolean): InlineElement | null {
         let current = this.currentInlineElement || this.currentInline;
-        let newInline: InlineElement;
+        let newInline: InlineElement | null;
 
         if (!current) {
             return null;
@@ -207,7 +208,7 @@ function getNextPreviousInlineElement(
     rootNode: Node,
     current: InlineElement,
     isNext: boolean
-): InlineElement {
+): InlineElement | null {
     if (!current) {
         return null;
     }
@@ -221,7 +222,7 @@ function getNextPreviousInlineElement(
     }
 
     // Get a leaf node after startNode and use that base to find next inline
-    let startNode = current.getContainerNode();
+    let startNode: Node | null = current.getContainerNode();
     startNode = getLeafSibling(rootNode, startNode, isNext);
     return getInlineElementAtNode(rootNode, startNode);
 }

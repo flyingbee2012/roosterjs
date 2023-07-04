@@ -1,8 +1,6 @@
+import formatUndoSnapshot from '../utils/formatUndoSnapshot';
 import { IEditor, ModeIndependentColor } from 'roosterjs-editor-types';
-import { safeInstanceOf, setColor } from 'roosterjs-editor-dom';
-
-const TEMP_BACKGROUND_COLOR = 'originalBackgroundColor';
-const CELL_SHADE = 'cellShade';
+import { safeInstanceOf, saveTableCellMetadata, setColor } from 'roosterjs-editor-dom';
 
 /**
  * Set background color of cells.
@@ -11,16 +9,24 @@ const CELL_SHADE = 'cellShade';
  **/
 export default function applyCellShading(editor: IEditor, color: string | ModeIndependentColor) {
     editor.focus();
-    editor.addUndoSnapshot(() => {
-        const regions = editor.getSelectedRegions();
-        regions.forEach(region => {
-            if (safeInstanceOf(region.rootNode, 'HTMLTableCellElement')) {
-                setColor(region.rootNode, color, true /* isBackgroundColor */, editor.isDarkMode());
-                region.rootNode.dataset[CELL_SHADE] = 'true';
-
-                region.rootNode.dataset[TEMP_BACKGROUND_COLOR] =
-                    region.rootNode.style.backgroundColor;
-            }
-        });
-    });
+    formatUndoSnapshot(
+        editor,
+        () => {
+            const regions = editor.getSelectedRegions();
+            regions.forEach(region => {
+                if (safeInstanceOf(region.rootNode, 'HTMLTableCellElement')) {
+                    setColor(
+                        region.rootNode,
+                        color,
+                        true /* isBackgroundColor */,
+                        editor.isDarkMode(),
+                        true /** shouldAdaptFontColor */,
+                        editor.getDarkColorHandler()
+                    );
+                    saveTableCellMetadata(region.rootNode, { bgColorOverride: true });
+                }
+            });
+        },
+        'applyCellShading'
+    );
 }

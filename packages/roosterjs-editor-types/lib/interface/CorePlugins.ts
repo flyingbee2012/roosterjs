@@ -61,6 +61,16 @@ export default interface CorePlugins {
     readonly entity: PluginWithState<EntityPluginState>;
 
     /**
+     * Image selection Plugin detects image selection and help highlight the image
+     */
+    readonly imageSelection: EditorPlugin;
+
+    /**
+     * NormalizeTable plugin makes sure each table in editor has TBODY/THEAD/TFOOT tag around TR tags
+     */
+    readonly normalizeTable: EditorPlugin;
+
+    /**
      * Lifecycle plugin handles editor initialization and disposing
      */
     readonly lifecycle: PluginWithState<LifecyclePluginState>;

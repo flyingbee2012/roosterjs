@@ -18,7 +18,7 @@ Please see [here](https://github.com/microsoft/roosterjs/wiki/RoosterJs-8).
 
 ### Packages
 
-Rooster contains 6 packages.
+Rooster contains 6 basic packages.
 
 1. [roosterjs](https://microsoft.github.io/roosterjs/docs/modules/roosterjs.html):
    A facade of all Rooster code for those who want a quick start. Use the
@@ -43,6 +43,19 @@ Rooster contains 6 packages.
 
 6. [roosterjs-editor-types](https://microsoft.github.io/roosterjs/docs/modules/roosterjs_editor_types.html):
    Defines public interfaces and enumerations.
+
+There are also some extension packages to provide additional functionalities.
+
+1. [roosterjs-color-utils](https://microsoft.github.io/roosterjs/docs/modules/roosterjs_color_utils.html):
+   Provide color transformation utility to make editor work under dark mode.
+
+2. [roosterjs-react](https://microsoft.github.io/roosterjs/docs/modules/roosterjs_react.html):
+   Provide a React wrapper of roosterjs so it can be easily used with React.
+
+3. [roosterjs-editor-types-compatible](https://microsoft.github.io/roosterjs/docs/modules/roosterjs_editor_types_compatible.html):
+   Provide types that are compatible with isolatedModules mode. When using isolatedModules mode,
+   "const enum" will not work correctly, this package provides enums with prefix "Compatible" in
+   their names and they have the same value with const enums in roosterjs-editor-types package
 
 ### APIs
 
@@ -99,10 +112,6 @@ Install via NPM or Yarn:
 
 `yarn add roosterjs`
 
-or
-
-`npm install roosterjs --save`
-
 You can also install sub packages separately:
 
 `yarn add roosterjs-editor-core`
@@ -111,21 +120,9 @@ You can also install sub packages separately:
 
 `...`
 
-or
-
-`npm install roosterjs-editor-core --save`
-
-`npm install roosterjs-editor-api --save`
-
-`...`
-
 In order to run the code below, you may also need to install [webpack](https://webpack.js.org/):
 
 `yarn add webpack -g`
-
-or
-
-`npm install webpack -g`
 
 ## Usage
 
@@ -219,12 +216,6 @@ To build the sample site code yourself, follow these instructions:
     yarn
     ```
 
-    or
-
-    ```cmd
-    npm install
-    ```
-
 2. Build the source code, and start the sample editor:
 
     ```
@@ -298,7 +289,7 @@ Currently we have very few external dependencies. Before adding any new dependen
    A dependency package under MIT license is good to be used for RoosterJs. For other licenses, we need
    to review and see if we can take it as a dependency.
 
-If you still feel a new dependency is required after checking these 3 questions, we can review it and
+If you still feel a new dependency is required after checking these questions, we can review it and
 finally decide whether we should add the new dependency.
 
 For build time dependencies, it is more flexable to add new dependencies since it won't increase runtime

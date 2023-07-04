@@ -2,6 +2,7 @@ import * as React from 'react';
 import BuildInPluginState from '../../BuildInPluginState';
 import { ContentEditFeatureSettings } from 'roosterjs-editor-types';
 import { getAllFeatures } from 'roosterjs-editor-plugins/lib/ContentEdit';
+import { getObjectKeys } from 'roosterjs-editor-dom';
 
 type ContentEditItemId = keyof ContentEditFeatureSettings;
 
@@ -36,6 +37,26 @@ const EditFeatureDescriptionMap: Record<keyof ContentEditFeatureSettings, string
     markdownInlineCode: 'Markdown style Code blocks',
     maintainListChainWhenDelete:
         'Maintain the list of number in the right order after press delete before the first item',
+    indentTableOnTab: 'Indent the table if it is all cells are selected.',
+    indentWhenTabText:
+        'On Tab indent the selection or add Tab, requires TabKeyFeatures Experimental Feature',
+    outdentWhenTabText:
+        'On Shift + Tab outdent the selection, requires TabKeyFeatures Experimental Feature',
+    autoHyphen: 'Automatically transform -- into hyphen, if typed between two words.',
+    autoBulletList:
+        'When press space after *, -, --, ->, -->, >, =>  in an empty line, toggle bullet',
+    autoNumberingList:
+        'When press space after an number, a letter or roman number followed by ), ., -, or between parenthesis in an empty line, toggle numbering',
+    mergeListOnBackspaceAfterList: 'When backspacing between lists, merge the lists',
+    deleteTableWithBackspace: 'Delete table with backspace key with whole table is selected',
+    moveBetweenDelimitersFeature:
+        'Content edit feature to move the cursor from Delimiters around Entities when using Right or Left Arrow Keys',
+    removeEntityBetweenDelimiters:
+        'When using BACKSPACE or DELETE in a Readonly inline entity delimeter, trigger a Entity Operation',
+    removeCodeWhenEnterOnEmptyLine: 'Remove code line when enter on empty line',
+    removeCodeWhenBackspaceOnEmptyFirstLine: 'Remove code line when backspace on empty first line',
+    indentWhenAltShiftRight: 'Indent list item using Alt + Shift + Right',
+    outdentWhenAltShiftLeft: 'Outdent list item using Alt + Shift + Left',
 };
 
 export interface ContentEditFeaturessProps {
@@ -49,7 +70,7 @@ export default class ContentEditFeatures extends React.Component<ContentEditFeat
         return (
             <table>
                 <tbody>
-                    {Object.keys(features).map((key: ContentEditItemId) =>
+                    {getObjectKeys(features).map(key =>
                         this.renderContentEditItem(key, EditFeatureDescriptionMap[key])
                     )}
                 </tbody>
@@ -65,7 +86,7 @@ export default class ContentEditFeatures extends React.Component<ContentEditFeat
         const checked = this.props.state[id];
 
         return (
-            <tr>
+            <tr key={id}>
                 <td className={styles.checkboxColumn}>
                     <input
                         type="checkbox"

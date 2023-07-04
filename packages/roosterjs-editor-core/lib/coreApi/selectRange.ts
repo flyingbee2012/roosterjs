@@ -4,9 +4,9 @@ import {
     contains,
     getPendableFormatState,
     Position,
-    PendableFormatNames,
     PendableFormatCommandMap,
     addRangeToSelection,
+    getObjectKeys,
 } from 'roosterjs-editor-dom';
 
 /**
@@ -55,13 +55,20 @@ function restorePendingFormatState(core: EditorCore) {
     if (pendingFormatState.pendableFormatState) {
         const document = contentDiv.ownerDocument;
         let formatState = getPendableFormatState(document);
-        (<PendableFormatNames[]>Object.keys(PendableFormatCommandMap)).forEach(key => {
-            if (!!pendingFormatState.pendableFormatState[key] != formatState[key]) {
-                document.execCommand(PendableFormatCommandMap[key], false, null);
+        getObjectKeys(PendableFormatCommandMap).forEach(key => {
+            if (!!pendingFormatState.pendableFormatState?.[key] != formatState[key]) {
+                document.execCommand(
+                    PendableFormatCommandMap[key],
+                    false /* showUI */,
+                    undefined /* value */
+                );
             }
         });
 
         const range = getSelectionRange(core, true /*tryGetFromCache*/);
-        pendingFormatState.pendableFormatPosition = range && Position.getStart(range);
+        let position: Position | null = range && Position.getStart(range);
+        if (position) {
+            pendingFormatState.pendableFormatPosition = position;
+        }
     }
 }

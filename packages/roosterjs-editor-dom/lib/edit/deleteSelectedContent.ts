@@ -1,4 +1,4 @@
-import arrayPush from '../utils/arrayPush';
+import arrayPush from '../jsUtils/arrayPush';
 import collapseNodesInRegion from '../region/collapseNodesInRegion';
 import getRegionsFromRange from '../region/getRegionsFromRange';
 import getSelectionRangeInRegion from '../region/getSelectionRangeInRegion';
@@ -7,15 +7,18 @@ import Position from '../selection/Position';
 import queryElements from '../utils/queryElements';
 import safeInstanceOf from '../utils/safeInstanceOf';
 import splitTextNode from '../utils/splitTextNode';
-import { PositionType, QueryScope, RegionType } from 'roosterjs-editor-types';
+import { NodePosition, PositionType, QueryScope, RegionType } from 'roosterjs-editor-types';
 
 /**
  * Delete selected content, and return the new position to select
  * @param core The EditorCore object.
  * @param range The range to delete
  */
-export default function deleteSelectedContent(root: HTMLElement, range: Range) {
-    let nodeBefore: Node = null;
+export default function deleteSelectedContent(
+    root: HTMLElement,
+    range: Range
+): NodePosition | null {
+    let nodeBefore: Node | null = null;
 
     // 1. TABLE and TR node in selected should be deleted. It is possible we don't detect them from step 2
     // since table cells will fall in to different regions
@@ -38,7 +41,21 @@ export default function deleteSelectedContent(root: HTMLElement, range: Range) {
                 return null;
             }
 
-            const { startContainer, endContainer, startOffset, endOffset } = regionRange;
+            const {
+                startContainer,
+                endContainer,
+                startOffset,
+                endOffset,
+                commonAncestorContainer,
+            } = regionRange;
+
+            // Disallow merging of readonly elements
+            if (
+                safeInstanceOf(commonAncestorContainer, 'HTMLElement') &&
+                !commonAncestorContainer.isContentEditable
+            ) {
+                return null;
+            }
 
             // Make sure there are node before and after the merging point.
             // This is required by mergeBlocksInRegion API.
@@ -62,13 +79,17 @@ export default function deleteSelectedContent(root: HTMLElement, range: Range) {
         })
         .filter(x => !!x);
 
-    // 3. Delete all nodes that we found
-    nodesToDelete.forEach(node => node.parentNode?.removeChild(node));
+    // 3. Delete all nodes that we found, whose parent is editable
+    nodesToDelete.forEach(
+        node => node.parentElement?.isContentEditable && node.parentElement.removeChild(node)
+    );
 
     // 4. Merge lines for each region, so that after we don't see extra line breaks
-    nodesPairToMerge.forEach(nodes =>
-        mergeBlocksInRegion(nodes.region, nodes.beforeStart, nodes.afterEnd)
-    );
+    nodesPairToMerge.forEach(nodes => {
+        if (nodes) {
+            mergeBlocksInRegion(nodes.region, nodes.beforeStart, nodes.afterEnd);
+        }
+    });
 
     return nodeBefore && new Position(nodeBefore, PositionType.End);
 }
@@ -78,8 +99,8 @@ function ensureBeforeAndAfter(node: Node, offset: number, isStart: boolean) {
         const newNode = splitTextNode(node, offset, isStart);
         return isStart ? [newNode, node] : [node, newNode];
     } else {
-        let nodeBefore: Node = node.childNodes[offset - 1];
-        let nodeAfter: Node = node.childNodes[offset];
+        let nodeBefore: Node | null = node.childNodes[offset - 1];
+        let nodeAfter: Node | null = node.childNodes[offset];
 
         // Condition 1: node child nodes
         // ("I" means cursor; "o" means a DOM node, "[ ]" means a parent node)
@@ -99,8 +120,8 @@ function ensureBeforeAndAfter(node: Node, offset: number, isStart: boolean) {
         // [ o I ]  or [ I o]
         // need to add empty text node to convert to condition 3
         if ((nodeBefore || nodeAfter) && (!nodeBefore || !nodeAfter)) {
-            const emptyNode = node.ownerDocument.createTextNode('');
-            (nodeBefore || nodeAfter).parentNode?.insertBefore(emptyNode, nodeAfter);
+            const emptyNode = node.ownerDocument!.createTextNode('');
+            (nodeBefore || nodeAfter)?.parentNode?.insertBefore(emptyNode, nodeAfter);
             if (nodeBefore) {
                 nodeAfter = emptyNode;
             } else {
@@ -111,6 +132,6 @@ function ensureBeforeAndAfter(node: Node, offset: number, isStart: boolean) {
         // Condition 3: Both nodeBefore and nodeAfter are not null
         // [o I o]
         // return the nodes
-        return [nodeBefore, nodeAfter];
+        return [nodeBefore!, nodeAfter!];
     }
 }

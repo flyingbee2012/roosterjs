@@ -2,7 +2,6 @@
 
 // Utilities
 const ProgressBar = require('progress');
-const { mainPackageJson } = require('./buildTools/common');
 
 // Steps
 const tslintStep = require('./buildTools/tslint');
@@ -10,6 +9,7 @@ const checkDependencyStep = require('./buildTools/checkDependency');
 const cleanStep = require('./buildTools/clean');
 const normalizeStep = require('./buildTools/normalize');
 const buildAmdStep = require('./buildTools/buildAmd');
+const buildMjsStep = require('./buildTools/buildMjs');
 const buildCommonJsStep = require('./buildTools/buildCommonJs');
 const pack = require('./buildTools/pack');
 const dts = require('./buildTools/dts');
@@ -18,17 +18,24 @@ const buildDocumentStep = require('./buildTools/buildDocument');
 const publishStep = require('./buildTools/publish');
 const allTasks = [
     tslintStep,
-    checkDependencyStep,
     cleanStep,
     normalizeStep,
+    checkDependencyStep,
     buildAmdStep,
+    buildMjsStep,
     buildCommonJsStep,
     pack.commonJsDebug,
     pack.commonJsProduction,
     pack.amdDebug,
     pack.amdProduction,
+    pack.commonJsDebugUi,
+    pack.commonJsProductionUi,
+    pack.amdDebugUi,
+    pack.amdProductionUi,
     dts.dtsCommonJs,
     dts.dtsAmd,
+    dts.dtsCommonJsUi,
+    dts.dtsAmdUi,
     buildDemoStep,
     buildDocumentStep,
     publishStep,
@@ -36,18 +43,19 @@ const allTasks = [
 
 // Commands
 const commands = [
+    'tslint', // Run tslint to check code style
     'checkdep', // Check circular dependency among files
     'clean', // Clean target folder
-    'dts', // Generate type definition files (.d.ts)
-    'tslint', // Run tslint to check code style
     'normalize', // Normalize package.json files
+    'buildamd', // Build in AMD mode
+    'buildmjs', // Build in ESM/MJS mode
+    'buildcommonjs', // Build in CommonJs mode
     'pack', // Run webpack to generate standalone .js files
     'packprod', // Run webpack to generate standalone .js files in production mode
+    'dts', // Generate type definition files (.d.ts)
     'builddemo', // Build the demo site
-    'buildcommonjs', // Build in CommonJs mode
-    'buildamd', // Build in AMD mode
-    'publish', // Publish roosterjs packages to npm
     'builddoc', // Build documents
+    'publish', // Publish roosterjs packages to npm
 ];
 
 class Runner {
@@ -78,7 +86,7 @@ class Runner {
 
     run() {
         (async () => {
-            console.log(`Start building roosterjs version ${mainPackageJson.version}\n`);
+            console.log(`Start building roosterjs\n`);
 
             const bar = this.getUI();
 

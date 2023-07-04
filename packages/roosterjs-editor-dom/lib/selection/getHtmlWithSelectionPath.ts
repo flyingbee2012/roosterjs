@@ -1,7 +1,5 @@
 import getInnerHTML from '../utils/getInnerHTML';
 import getSelectionPath from './getSelectionPath';
-import getTagOfNode from '../utils/getTagOfNode';
-import queryElements from '../utils/queryElements';
 
 /**
  * Get inner Html of a root node with a selection path which can be used for restore selection.
@@ -12,40 +10,10 @@ import queryElements from '../utils/queryElements';
  */
 export default function getHtmlWithSelectionPath(
     rootNode: HTMLElement | DocumentFragment,
-    range: Range
+    range: Range | null
 ): string {
     if (!rootNode) {
         return '';
-    }
-
-    const { startContainer, endContainer, startOffset, endOffset } = range || {};
-    let isDOMChanged = false;
-
-    queryElements(rootNode, 'table', table => {
-        let tbody: HTMLTableSectionElement | null = null;
-
-        for (let child = table.firstChild; child; child = child.nextSibling) {
-            if (getTagOfNode(child) == 'TR') {
-                if (!tbody) {
-                    tbody = table.ownerDocument.createElement('tbody');
-                    table.insertBefore(tbody, child);
-                }
-
-                tbody.appendChild(child);
-                child = tbody;
-
-                isDOMChanged = true;
-            } else {
-                tbody = null;
-            }
-        }
-    });
-
-    if (range && isDOMChanged) {
-        try {
-            range.setStart(startContainer, startOffset);
-            range.setEnd(endContainer, endOffset);
-        } catch {}
     }
 
     const content = getInnerHTML(rootNode);

@@ -62,6 +62,16 @@ export interface EntityFeatureSettings {
      * press DELETE right after an entity
      */
     deleteBeforeEntity: boolean;
+
+    /**
+     * Content edit feature to move the cursor from Delimiters around Entities when using Right or Left Arrow Keys
+     */
+    moveBetweenDelimitersFeature: boolean;
+
+    /**
+     * Content edit Feature to trigger a Delete Entity Operation when one of the Delimiter is about to be removed with DELETE or Backspace
+     */
+    removeEntityBetweenDelimiters: boolean;
 }
 
 /**
@@ -113,6 +123,36 @@ export interface ListFeatureSettings {
      * When delete key is pressed before the first item, indent the correct list of numbers
      */
     maintainListChainWhenDelete: boolean;
+
+    /**
+     * When press space after *, -, --, ->, -->, >, =>  in an empty line, toggle bullet
+     * @default true
+     */
+    autoBulletList: boolean;
+
+    /**
+     * When press space after an number, a letter or roman number followed by ), ., -, or between parenthesis in an empty line, toggle numbering
+     * @default true
+     */
+    autoNumberingList: boolean;
+
+    /**
+     * MergeListOnBackspaceAfterList edit feature, provides the ability to merge list on backspace on block after a list.
+     * @default true
+     */
+    mergeListOnBackspaceAfterList: boolean;
+
+    /**
+     * indentWhenAltShiftRight edit feature, provides the ability to indent or outdent current list when user press Alt+shift+Right
+     * @default when browser is in Mac it is default disabled, else it is enabled
+     */
+    indentWhenAltShiftRight: boolean;
+
+    /**
+     * outdentWhenAltShiftLeft edit feature, provides the ability to indent or outdent current list when user press Alt+shift+Left
+     * @default when browser is in Mac it is default disabled, else it is enabled
+     */
+    outdentWhenAltShiftLeft: boolean;
 }
 
 /**
@@ -199,6 +239,63 @@ export interface TableFeatureSettings {
      * @default true for Chrome and safari, false for other browsers since they already have correct behavior
      */
     upDownInTable: boolean;
+
+    /**
+     * IndentTableOnTab edit feature, provides the ability to indent the table if it is all cells are selected.
+     */
+    indentTableOnTab: boolean;
+
+    /**
+     * Requires @see ExperimentalFeatures.DeleteTableWithBackspace
+     * Delete a table selected with the table selector pressing  Backspace key
+     */
+    deleteTableWithBackspace: boolean;
+}
+
+/**
+ * Settings for text features
+ */
+export interface TextFeatureSettings {
+    /**
+     * Requires @see ExperimentalFeatures.TabKeyTextFeatures to be enabled
+     * When press Tab:
+     *      If Whole Paragraph selected, indent paragraph,
+     *      If range is collapsed, add spaces
+     *      If range is not collapsed but not all the paragraph is selected, remove selection and add
+     *          spaces
+     */
+    indentWhenTabText: boolean;
+
+    /**
+     * Requires @see ExperimentalFeatures.TabKeyTextFeatures to be enabled
+     * When press Tab:
+     *      If Whole Paragraph selected, outdent paragraph
+     */
+    outdentWhenTabText: boolean;
+
+    /**
+     * @deprecated
+     * Requires @see ExperimentalFeatures.AutoHyphen to be enabled
+     * Automatically transform -- into hyphen, if typed between two words.
+     */
+    autoHyphen: boolean;
+}
+
+/**
+ * Settings for code features
+ */
+export interface CodeFeatureSettings {
+    /**
+     * When inside a code block, exit the code block by pressing Enter twice, or once on an empty line
+     * @default true
+     */
+    removeCodeWhenEnterOnEmptyLine: boolean;
+
+    /**
+     * When inside an empty code block (or an empty first line), exit the code block by pressing Backspace
+     * @default true
+     */
+    removeCodeWhenBackspaceOnEmptyFirstLine: boolean;
 }
 
 /**
@@ -213,4 +310,6 @@ export default interface ContentEditFeatureSettings
         ShortcutFeatureSettings,
         CursorFeatureSettings,
         MarkdownFeatureSettings,
-        EntityFeatureSettings {}
+        EntityFeatureSettings,
+        TextFeatureSettings,
+        CodeFeatureSettings {}

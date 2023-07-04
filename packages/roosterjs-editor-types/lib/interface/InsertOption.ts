@@ -1,4 +1,5 @@
 import { ContentPosition } from '../enum/ContentPosition';
+import type { CompatibleContentPosition } from '../compatibleEnum/ContentPosition';
 
 /**
  * Shared options for insertNode related APIs
@@ -20,6 +21,13 @@ export interface InsertOptionBase {
      * No-op for ContentPosition.Begin, End, and Outside
      */
     replaceSelection?: boolean;
+
+    /**
+     * Boolean flag for inserting the content onto root node of current region.
+     * If current position is not at root of region, break parent node until insert can happen at root of region.
+     * This option only takes effect when insertOnNewLine is true, otherwise it will be ignored.
+     */
+    insertToRegionRoot?: boolean;
 }
 
 /**
@@ -31,14 +39,19 @@ export interface InsertOptionBasic extends InsertOptionBase {
         | ContentPosition.End
         | ContentPosition.DomEnd
         | ContentPosition.Outside
-        | ContentPosition.SelectionStart;
+        | ContentPosition.SelectionStart
+        | CompatibleContentPosition.Begin
+        | CompatibleContentPosition.End
+        | CompatibleContentPosition.DomEnd
+        | CompatibleContentPosition.Outside
+        | CompatibleContentPosition.SelectionStart;
 }
 
 /**
  * The Range variant where insertNode will operate on a range disjointed from the current selection state.
  */
 export interface InsertOptionRange extends InsertOptionBase {
-    position: ContentPosition.Range;
+    position: ContentPosition.Range | CompatibleContentPosition.Range;
 
     /**
      * The range to be targeted when insertion happens.

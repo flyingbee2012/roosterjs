@@ -31,7 +31,10 @@ import { BlockElement } from 'roosterjs-editor-types';
  * @param rootNode Root node of the scope, the block element will be inside of this node
  * @param node The node to get BlockElement start from
  */
-export default function getBlockElementAtNode(rootNode: Node, node: Node): BlockElement {
+export default function getBlockElementAtNode(
+    rootNode: Node,
+    node: Node | null
+): BlockElement | null {
     if (!contains(rootNode, node)) {
         return null;
     }
@@ -39,14 +42,20 @@ export default function getBlockElementAtNode(rootNode: Node, node: Node): Block
     // Identify the containing block. This serves as ceiling for traversing down below
     // NOTE: this container block could be just the rootNode,
     // which cannot be used to create block element. We will special case handle it later on
-    let containerBlockNode = StartEndBlockElement.getBlockContext(node);
-    if (containerBlockNode == node) {
+    let containerBlockNode = StartEndBlockElement.getBlockContext(node!);
+    if (!containerBlockNode) {
+        return null;
+    } else if (containerBlockNode == node) {
         return new NodeBlockElement(containerBlockNode);
     }
 
     // Find the head and leaf node in the block
-    let headNode = findHeadTailLeafNode(node, containerBlockNode, false /*isTail*/);
-    let tailNode = findHeadTailLeafNode(node, containerBlockNode, true /*isTail*/);
+    let headNode = findHeadTailLeafNode(node!, containerBlockNode, false /*isTail*/);
+    let tailNode = findHeadTailLeafNode(node!, containerBlockNode, true /*isTail*/);
+
+    if (!headNode || !tailNode) {
+        return null;
+    }
 
     // At this point, we have the head and tail of a block, here are some examples and where head and tail point to
     // 1) &lt;root&gt;&lt;div&gt;hello&lt;br&gt;&lt;/div&gt;&lt;/root&gt;, head: hello, tail: &lt;br&gt;
@@ -54,6 +63,11 @@ export default function getBlockElementAtNode(rootNode: Node, node: Node): Block
     // Both are actually completely and exclusively wrapped in a parent div, and can be represented with a Node block
     // So we shall try to collapse as much as we can to the nearest common ancestor
     let nodes = collapseNodes(rootNode, headNode, tailNode, false /*canSplitParent*/);
+
+    if (nodes.length === 0) {
+        return null;
+    }
+
     headNode = nodes[0];
     tailNode = nodes[nodes.length - 1];
 
@@ -71,7 +85,7 @@ export default function getBlockElementAtNode(rootNode: Node, node: Node): Block
                     headNode = tailNode = parentNode;
                 }
                 break;
-            } else if (parentNode != rootNode) {
+            } else if (parentNode && parentNode != rootNode) {
                 // Continue collapsing to parent
                 headNode = tailNode = parentNode;
             } else {
@@ -102,8 +116,8 @@ function findHeadTailLeafNode(node: Node, containerBlockNode: Node, isTail: bool
     }
 
     while (result) {
-        let sibling = node;
-        while (!(sibling = isTail ? node.nextSibling : node.previousSibling)) {
+        let sibling: Node | null = node;
+        while (node.parentNode && !(sibling = isTail ? node.nextSibling : node.previousSibling)) {
             node = node.parentNode;
             if (node == containerBlockNode) {
                 return result;

@@ -1,192 +1,224 @@
 import * as React from 'react';
-import * as ReactDom from 'react-dom';
-import BuildInPluginState from './BuildInPluginState';
-import Editor from './editor/Editor';
+import * as ReactDOM from 'react-dom';
+import ApiPlaygroundPlugin from './sidePane/apiPlayground/ApiPlaygroundPlugin';
+import EditorOptionsPlugin from './sidePane/editorOptions/EditorOptionsPlugin';
+import EventViewPlugin from './sidePane/eventViewer/EventViewPlugin';
+import FormatPainterPlugin from './contentModel/plugins/FormatPainterPlugin';
+import FormatStatePlugin from './sidePane/formatState/FormatStatePlugin';
+import getToggleablePlugins from './getToggleablePlugins';
 import MainPaneBase from './MainPaneBase';
-import PopoutMainPane from './PopoutMainPane';
-import Ribbon from './ribbon/Ribbon';
+import SampleEntityPlugin from './sampleEntity/SampleEntityPlugin';
 import SidePane from './sidePane/SidePane';
+import SnapshotPlugin from './sidePane/snapshot/SnapshotPlugin';
 import TitleBar from './titleBar/TitleBar';
-import { getAllPluginArray, getPlugins, getSidePanePluginArray } from './plugins';
-import { trustedHTMLHandler } from '../utils/trustedHTMLHandler';
+import { arrayPush } from 'roosterjs-editor-dom';
+import { darkMode, DarkModeButtonStringKey } from './ribbonButtons/darkMode';
+import { Editor } from 'roosterjs-editor-core';
+import { EditorOptions, EditorPlugin } from 'roosterjs-editor-types';
+import { ExportButtonStringKey, exportContent } from './ribbonButtons/export';
+import { PartialTheme } from '@fluentui/react/lib/Theme';
+import { popout, PopoutButtonStringKey } from './ribbonButtons/popout';
+import { zoom, ZoomButtonStringKey } from './ribbonButtons/zoom';
+import {
+    createRibbonPlugin,
+    RibbonPlugin,
+    createPasteOptionPlugin,
+    createEmojiPlugin,
+    Ribbon,
+    RibbonButton,
+    AllButtonStringKeys,
+    getButtons,
+    AllButtonKeys,
+} from 'roosterjs-react';
 
 const styles = require('./MainPane.scss');
-const PopoutRoot = 'mainPane';
-const POPOUT_HTML = `<!doctype html><html><head><title>RoosterJs Demo Page PopOut</title></head><body><div id=${PopoutRoot}></div></body></html>`;
-const POPOUT_FEATURES = 'menubar=no,statusbar=no,width=1200,height=800';
-const POPOUT_URL = 'about:blank';
-const POPOUT_TARGET = '_blank';
+type RibbonStringKeys =
+    | AllButtonStringKeys
+    | DarkModeButtonStringKey
+    | ZoomButtonStringKey
+    | ExportButtonStringKey
+    | PopoutButtonStringKey;
+
+const LightTheme: PartialTheme = {
+    palette: {
+        themePrimary: '#0099aa',
+        themeLighterAlt: '#f2fbfc',
+        themeLighter: '#cbeef2',
+        themeLight: '#a1dfe6',
+        themeTertiary: '#52c0cd',
+        themeSecondary: '#16a5b5',
+        themeDarkAlt: '#008a9a',
+        themeDark: '#007582',
+        themeDarker: '#005660',
+        neutralLighterAlt: '#faf9f8',
+        neutralLighter: '#f3f2f1',
+        neutralLight: '#edebe9',
+        neutralQuaternaryAlt: '#e1dfdd',
+        neutralQuaternary: '#d0d0d0',
+        neutralTertiaryAlt: '#c8c6c4',
+        neutralTertiary: '#a19f9d',
+        neutralSecondary: '#605e5c',
+        neutralPrimaryAlt: '#3b3a39',
+        neutralPrimary: '#323130',
+        neutralDark: '#201f1e',
+        black: '#000000',
+        white: '#ffffff',
+    },
+};
+
+const DarkTheme: PartialTheme = {
+    palette: {
+        themePrimary: '#0091A1',
+        themeLighterAlt: '#f1fafb',
+        themeLighter: '#caecf0',
+        themeLight: '#9fdce3',
+        themeTertiary: '#4fbac6',
+        themeSecondary: '#159dac',
+        themeDarkAlt: '#008291',
+        themeDark: '#006e7a',
+        themeDarker: '#00515a',
+        neutralLighterAlt: '#3c3c3c',
+        neutralLighter: '#444444',
+        neutralLight: '#515151',
+        neutralQuaternaryAlt: '#595959',
+        neutralQuaternary: '#5f5f5f',
+        neutralTertiaryAlt: '#7a7a7a',
+        neutralTertiary: '#c8c8c8',
+        neutralSecondary: '#d0d0d0',
+        neutralPrimaryAlt: '#dadada',
+        neutralPrimary: '#ffffff',
+        neutralDark: '#f4f4f4',
+        black: '#f8f8f8',
+        white: '#333333',
+    },
+};
 
 class MainPane extends MainPaneBase {
-    private mouseX: number;
-    private popoutRoot: HTMLElement;
+    private formatStatePlugin: FormatStatePlugin;
+    private editorOptionPlugin: EditorOptionsPlugin;
+    private eventViewPlugin: EventViewPlugin;
+    private apiPlaygroundPlugin: ApiPlaygroundPlugin;
+    private ribbonPlugin: RibbonPlugin;
+    private pasteOptionPlugin: EditorPlugin;
+    private emojiPlugin: EditorPlugin;
+    private toggleablePlugins: EditorPlugin[] | null = null;
+    private formatPainterPlugin: FormatPainterPlugin;
+    private sampleEntityPlugin: SampleEntityPlugin;
+    private mainWindowButtons: RibbonButton<RibbonStringKeys>[];
+    private popoutWindowButtons: RibbonButton<RibbonStringKeys>[];
 
     constructor(props: {}) {
         super(props);
 
+        this.formatStatePlugin = new FormatStatePlugin();
+        this.editorOptionPlugin = new EditorOptionsPlugin();
+        this.eventViewPlugin = new EventViewPlugin();
+        this.apiPlaygroundPlugin = new ApiPlaygroundPlugin();
+        this.snapshotPlugin = new SnapshotPlugin();
+        this.ribbonPlugin = createRibbonPlugin();
+        this.pasteOptionPlugin = createPasteOptionPlugin();
+        this.emojiPlugin = createEmojiPlugin();
+        this.formatPainterPlugin = new FormatPainterPlugin();
+        this.sampleEntityPlugin = new SampleEntityPlugin();
+
+        this.mainWindowButtons = getButtons([
+            ...AllButtonKeys,
+            darkMode,
+            zoom,
+            exportContent,
+            popout,
+        ]);
+        this.popoutWindowButtons = getButtons([...AllButtonKeys, darkMode, zoom, exportContent]);
+
         this.state = {
             showSidePane: window.location.hash != '',
-            showRibbon: true,
-            isPopoutShown: false,
-            initState: getPlugins().editorOptions.getBuildInPluginState(),
-            supportDarkMode: true,
+            popoutWindow: null,
+            initState: this.editorOptionPlugin.getBuildInPluginState(),
             scale: 1,
+            isDarkMode: this.themeMatch?.matches || false,
+            editorCreator: null,
+            isRtl: false,
         };
     }
 
-    render() {
-        let plugins = getPlugins();
+    getStyles(): Record<string, string> {
+        return styles;
+    }
 
+    renderTitleBar() {
+        return <TitleBar className={styles.noGrow} isContentModelPane={false} />;
+    }
+
+    renderRibbon(isPopout: boolean) {
         return (
-            <div className={styles.mainPane}>
-                <TitleBar className={styles.noGrow} />
-                {this.state.showRibbon && !this.state.isPopoutShown && (
-                    <Ribbon
-                        plugin={plugins.ribbon}
-                        className={styles.noGrow}
-                        ref={plugins.ribbon.refCallback}
-                    />
-                )}
-                <div className={styles.body}>
-                    {this.state.isPopoutShown ? (
-                        <SidePane
-                            ref={ref => (this.sidePane = ref)}
-                            plugins={getSidePanePluginArray()}
-                            className={`main-pane ${styles.sidePane} ${styles.sidePaneFullWidth}`}
-                        />
-                    ) : (
-                        <>
-                            <Editor
-                                scale={this.state.scale}
-                                plugins={getAllPluginArray(this.state.showSidePane)}
-                                className={styles.editor}
-                                initState={this.state.initState}
-                                snapshotService={plugins.snapshot.getSnapshotService()}
-                            />
-
-                            {this.state.showSidePane ? (
-                                <>
-                                    <div
-                                        className={styles.resizer}
-                                        onMouseDown={this.onMouseDown}
-                                    />
-                                    <SidePane
-                                        ref={ref => (this.sidePane = ref)}
-                                        plugins={getSidePanePluginArray()}
-                                        className={`main-pane ${styles.sidePane}`}
-                                    />
-                                    <button
-                                        className={`side-pane-toggle open ${styles.showSidePane}`}
-                                        onClick={this.onHideSidePane}>
-                                        <div>Hide side pane</div>
-                                    </button>
-                                </>
-                            ) : (
-                                <button
-                                    className={`side-pane-toggle closed ${styles.showSidePane}`}
-                                    onClick={this.onShowSidePane}>
-                                    <div>Show side pane</div>
-                                </button>
-                            )}
-                        </>
-                    )}
-                </div>
-            </div>
+            <Ribbon
+                buttons={isPopout ? this.popoutWindowButtons : this.mainWindowButtons}
+                plugin={this.ribbonPlugin}
+                dir={this.state.isRtl ? 'rtl' : 'ltr'}
+            />
         );
     }
 
-    resetEditorPlugin(pluginState: BuildInPluginState) {
-        this.setState({
-            initState: pluginState,
-        });
+    renderSidePane(fullWidth: boolean) {
+        const styles = this.getStyles();
+
+        return (
+            <SidePane
+                ref={this.sidePane}
+                plugins={this.getSidePanePlugins()}
+                isContentModelDemo={false}
+                className={`main-pane ${styles.sidePane} ${
+                    fullWidth ? styles.sidePaneFullWidth : ''
+                }`}
+            />
+        );
     }
 
-    updateFormatState() {
-        getPlugins().formatState.updateFormatState();
-    }
+    getPlugins() {
+        this.toggleablePlugins =
+            this.toggleablePlugins || getToggleablePlugins(this.state.initState);
 
-    setIsRibbonShown(isShown: boolean) {
-        this.setState({
-            showRibbon: isShown,
-        });
-    }
+        const plugins = [
+            ...this.toggleablePlugins,
+            this.ribbonPlugin,
+            this.pasteOptionPlugin,
+            this.emojiPlugin,
+            this.formatPainterPlugin,
+            this.sampleEntityPlugin,
+        ];
 
-    setIsDarkModeSupported(isSupported: boolean) {
-        this.setState({
-            supportDarkMode: isSupported,
-        });
-    }
-
-    isDarkModeSupported() {
-        return this.state.supportDarkMode;
-    }
-
-    popout() {
-        const win = window.open(POPOUT_URL, POPOUT_TARGET, POPOUT_FEATURES);
-        win.document.write(trustedHTMLHandler(POPOUT_HTML));
-        win.addEventListener('unload', () => {
-            if (this.popoutRoot) {
-                ReactDom.unmountComponentAtNode(this.popoutRoot);
-            }
-            window.setTimeout(() => {
-                this.setState({ isPopoutShown: false });
-            }, 100);
-        });
-
-        let styles = document.getElementsByTagName('STYLE');
-        for (let i = 0; i < styles.length; i++) {
-            win.document.head.appendChild(styles[i].cloneNode(true));
+        if (this.state.showSidePane || this.state.popoutWindow) {
+            arrayPush(plugins, this.getSidePanePlugins());
         }
 
-        this.setState({
-            isPopoutShown: true,
-        });
+        plugins.push(this.updateContentPlugin);
 
-        this.popoutRoot = win.document.getElementById(PopoutRoot);
-
-        window.setTimeout(() => {
-            ReactDom.render(<PopoutMainPane />, this.popoutRoot);
-        }, 0);
+        return plugins;
     }
 
-    setScale(scale: number): void {
+    resetEditor() {
+        this.toggleablePlugins = null;
         this.setState({
-            scale: scale,
+            editorCreator: (div: HTMLDivElement, options: EditorOptions) =>
+                new Editor(div, options),
         });
     }
 
-    private onMouseDown = (e: React.MouseEvent<EventTarget>) => {
-        document.addEventListener('mousemove', this.onMouseMove, true);
-        document.addEventListener('mouseup', this.onMouseUp, true);
-        document.body.style.userSelect = 'none';
-        this.mouseX = e.pageX;
-    };
+    getTheme(isDark: boolean): PartialTheme {
+        return isDark ? DarkTheme : LightTheme;
+    }
 
-    private onMouseMove = (e: MouseEvent) => {
-        this.sidePane.changeWidth(this.mouseX - e.pageX);
-        this.mouseX = e.pageX;
-    };
-
-    private onMouseUp = (e: MouseEvent) => {
-        document.removeEventListener('mousemove', this.onMouseMove, true);
-        document.removeEventListener('mouseup', this.onMouseUp, true);
-        document.body.style.userSelect = '';
-    };
-
-    private onShowSidePane = () => {
-        this.setState({
-            showSidePane: true,
-        });
-    };
-
-    private onHideSidePane = () => {
-        this.setState({
-            showSidePane: false,
-        });
-        window.location.hash = '';
-    };
+    private getSidePanePlugins() {
+        return [
+            this.formatStatePlugin,
+            this.editorOptionPlugin,
+            this.eventViewPlugin,
+            this.apiPlaygroundPlugin,
+            this.snapshotPlugin,
+        ];
+    }
 }
 
 export function mount(parent: HTMLElement) {
-    ReactDom.render(<MainPane />, parent);
+    ReactDOM.render(<MainPane />, parent);
 }

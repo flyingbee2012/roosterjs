@@ -1,12 +1,14 @@
 import changeElementTag from '../utils/changeElementTag';
 import getInheritableStyles from './getInheritableStyles';
+import getObjectKeys from '../jsUtils/getObjectKeys';
 import getPredefinedCssForElement from './getPredefinedCssForElement';
 import getStyles from '../style/getStyles';
 import getTagOfNode from '../utils/getTagOfNode';
 import safeInstanceOf from '../utils/safeInstanceOf';
 import setStyles from '../style/setStyles';
-import toArray from '../utils/toArray';
+import toArray from '../jsUtils/toArray';
 import { cloneObject } from './cloneObject';
+import { isCssVariable, processCssVariable } from './processCssVariable';
 import {
     getAllowedAttributes,
     getAllowedCssClassesRegex,
@@ -62,14 +64,14 @@ export default class HtmlSanitizer {
     private elementCallbacks: ElementCallbackMap;
     private styleCallbacks: CssStyleCallbackMap;
     private attributeCallbacks: AttributeCallbackMap;
-    private tagReplacements: Record<string, string>;
+    private tagReplacements: Record<string, string | null>;
     private allowedAttributes: string[];
-    private allowedCssClassesRegex: RegExp;
+    private allowedCssClassesRegex: RegExp | null;
     private defaultStyleValues: StringMap;
-    private additionalPredefinedCssForElement: PredefinedCssMap;
+    private additionalPredefinedCssForElement: PredefinedCssMap | null;
     private additionalGlobalStyleNodes: HTMLStyleElement[];
     private preserveHtmlComments: boolean;
-    private unknownTagReplacement: string;
+    private unknownTagReplacement: string | null;
 
     /**
      * Construct a new instance of HtmlSanitizer
@@ -86,10 +88,10 @@ export default class HtmlSanitizer {
             options.additionalAllowedCssClasses
         );
         this.defaultStyleValues = getDefaultStyleValues(options.additionalDefaultStyleValues);
-        this.additionalPredefinedCssForElement = options.additionalPredefinedCssForElement;
+        this.additionalPredefinedCssForElement = options.additionalPredefinedCssForElement || null;
         this.additionalGlobalStyleNodes = options.additionalGlobalStyleNodes || [];
-        this.preserveHtmlComments = options.preserveHtmlComments;
-        this.unknownTagReplacement = options.unknownTagReplacement;
+        this.preserveHtmlComments = options.preserveHtmlComments || false;
+        this.unknownTagReplacement = options.unknownTagReplacement || null;
     }
 
     /**
@@ -184,7 +186,7 @@ export default class HtmlSanitizer {
         if (isElement) {
             const tag = getTagOfNode(node);
             const callback = this.elementCallbacks[tag];
-            let replacement = this.tagReplacements[tag.toLowerCase()];
+            let replacement: string | null | undefined = this.tagReplacements[tag.toLowerCase()];
 
             if (replacement === undefined) {
                 replacement = this.unknownTagReplacement;
@@ -197,7 +199,7 @@ export default class HtmlSanitizer {
             } else if (tag == replacement || replacement == '*') {
                 shouldKeep = true;
             } else if (replacement && /^[a-zA-Z][\w\-]*$/.test(replacement)) {
-                node = changeElementTag(node as HTMLElement, replacement);
+                node = changeElementTag(node as HTMLElement, replacement)!;
                 shouldKeep = true;
             }
         } else if (isText) {
@@ -206,7 +208,7 @@ export default class HtmlSanitizer {
                 whiteSpace == 'pre' ||
                 whiteSpace == 'pre-line' ||
                 whiteSpace == 'pre-wrap' ||
-                !/^[\r\n]*$/g.test(node.nodeValue);
+                !/^[\r\n]*$/g.test(node.nodeValue || '');
         } else if (isFragment) {
             shouldKeep = true;
         } else if (isComment) {
@@ -216,12 +218,14 @@ export default class HtmlSanitizer {
         }
 
         if (!shouldKeep) {
-            node.parentNode.removeChild(node);
+            node.parentNode?.removeChild(node);
         } else if (
             isText &&
             (currentStyle['white-space'] == 'pre' || currentStyle['white-space'] == 'pre-wrap')
         ) {
-            node.nodeValue = node.nodeValue.replace(/^ /gm, '\u00A0').replace(/ {2}/g, ' \u00A0');
+            node.nodeValue = (node.nodeValue || '')
+                .replace(/^ /gm, '\u00A0')
+                .replace(/ {2}/g, ' \u00A0');
         } else if (isElement || isFragment) {
             let thisStyle = cloneObject(currentStyle);
             let element = <HTMLElement>node;
@@ -231,8 +235,8 @@ export default class HtmlSanitizer {
                 this.processCss(element, thisStyle, context);
             }
 
-            let child: Node = element.firstChild;
-            let next: Node;
+            let child: Node | null = element.firstChild;
+            let next: Node | null;
             for (; child; child = next) {
                 next = child.nextSibling;
                 this.processNode(child, thisStyle, context);
@@ -246,7 +250,7 @@ export default class HtmlSanitizer {
             this.additionalPredefinedCssForElement
         );
         if (predefinedStyles) {
-            Object.keys(predefinedStyles).forEach(name => {
+            getObjectKeys(predefinedStyles).forEach(name => {
                 thisStyle[name] = predefinedStyles[name];
             });
         }
@@ -254,12 +258,23 @@ export default class HtmlSanitizer {
 
     private processCss(element: HTMLElement, thisStyle: StringMap, context: Object) {
         const styles = getStyles(element);
-        Object.keys(styles).forEach(name => {
-            const value = styles[name];
+        getObjectKeys(styles).forEach(name => {
+            let value = styles[name];
             let callback = this.styleCallbacks[name];
             let isInheritable = thisStyle[name] != undefined;
-            let keep =
-                (!callback || callback(value, element, thisStyle, context)) &&
+            let keep = true;
+
+            if (keep && !!callback) {
+                keep = callback(value, element, thisStyle, context);
+            }
+
+            if (keep && isCssVariable(value)) {
+                value = processCssVariable(value);
+                keep = !!value;
+            }
+
+            keep =
+                keep &&
                 value != 'inherit' &&
                 value.indexOf('expression') < 0 &&
                 name.substr(0, 1) != '-' &&
@@ -270,7 +285,9 @@ export default class HtmlSanitizer {
                 thisStyle[name] = value;
             }
 
-            if (!keep) {
+            if (keep) {
+                styles[name] = value;
+            } else {
                 delete styles[name];
             }
         });
@@ -307,19 +324,19 @@ export default class HtmlSanitizer {
         }
     }
 
-    private processCssClass(originalValue: string, calculatedValue: string): string {
+    private processCssClass(originalValue: string, calculatedValue: string | null): string | null {
         const originalClasses = originalValue ? originalValue.split(' ') : [];
         const calculatedClasses = calculatedValue ? calculatedValue.split(' ') : [];
 
         originalClasses.forEach(className => {
             if (
-                this.allowedCssClassesRegex.test(className) &&
+                this.allowedCssClassesRegex?.test(className) &&
                 calculatedClasses.indexOf(className) < 0
             ) {
                 calculatedClasses.push(className);
             }
         });
 
-        return calculatedClasses.length > 0 ? calculatedClasses.join(' ') : null;
+        return calculatedClasses?.length > 0 ? calculatedClasses.join(' ') : null;
     }
 }

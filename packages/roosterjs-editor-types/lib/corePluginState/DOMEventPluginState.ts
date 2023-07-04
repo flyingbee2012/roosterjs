@@ -1,5 +1,5 @@
 import ContextMenuProvider from '../interface/ContextMenuProvider';
-import { TableSelectionRange } from '../interface/SelectionRangeEx';
+import { ImageSelectionRange, TableSelectionRange } from '../interface/SelectionRangeEx';
 
 /**
  * The state object for DOMEventPlugin
@@ -18,12 +18,12 @@ export default interface DOMEventPluginState {
     /**
      * Cached selection range
      */
-    selectionRange: Range;
+    selectionRange: Range | null;
 
     /**
      * Table selection range
      */
-    tableSelectionRange: TableSelectionRange;
+    tableSelectionRange: TableSelectionRange | null;
 
     /**
      * stop propagation of a printable keyboard event
@@ -34,4 +34,9 @@ export default interface DOMEventPluginState {
      * Context menu providers, that can provide context menu items
      */
     contextMenuProviders: ContextMenuProvider<any>[];
+
+    /**
+     * Image selection range
+     */
+    imageSelectionRange: ImageSelectionRange | null;
 }

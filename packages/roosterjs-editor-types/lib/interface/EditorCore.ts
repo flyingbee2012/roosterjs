@@ -1,20 +1,28 @@
 import ClipboardData from './ClipboardData';
+import ContentChangedData from './ContentChangedData';
+import DarkColorHandler from './DarkColorHandler';
 import EditorPlugin from './EditorPlugin';
 import NodePosition from './NodePosition';
+import Rect from './Rect';
+import SelectionPath from './SelectionPath';
 import TableSelection from './TableSelection';
 import { ChangeSource } from '../enum/ChangeSource';
 import { ColorTransformDirection } from '../enum/ColorTransformDirection';
+import { ContentMetadata } from './ContentMetadata';
 import { DOMEventHandler } from '../type/domEventHandler';
 import { GetContentMode } from '../enum/GetContentMode';
+import { ImageSelectionRange, SelectionRangeEx } from './SelectionRangeEx';
 import { InsertOption } from './InsertOption';
 import { PendableFormatState, StyleBasedFormatState } from './FormatState';
 import { PluginEvent } from '../event/PluginEvent';
 import { PluginState } from './CorePlugins';
-import { SelectionRangeEx } from './SelectionRangeEx';
+import { PositionType } from '../enum/PositionType';
 import { SizeTransformer } from '../type/SizeTransformer';
 import { TableSelectionRange } from './SelectionRangeEx';
 import { TrustedHTMLHandler } from '../type/TrustedHTMLHandler';
-
+import type { CompatibleChangeSource } from '../compatibleEnum/ChangeSource';
+import type { CompatibleColorTransformDirection } from '../compatibleEnum/ColorTransformDirection';
+import type { CompatibleGetContentMode } from '../compatibleEnum/GetContentMode';
 /**
  * Represents the core data structure of an editor
  */
@@ -35,18 +43,44 @@ export default interface EditorCore extends PluginState {
     readonly api: CoreApiMap;
 
     /**
+     * Original API map of this editor. Overridden core API can use API from this map to call the original version of core API.
+     */
+    readonly originalApi: CoreApiMap;
+
+    /**
      * A handler to convert HTML string to a trust HTML string.
      * By default it will just return the original HTML string directly.
      * To override, pass your own trusted HTML handler to EditorOptions.trustedHTMLHandler
      */
     readonly trustedHTMLHandler: TrustedHTMLHandler;
 
+    /*
+     * Current zoom scale, default value is 1
+     * When editor is put under a zoomed container, need to pass the zoom scale number using this property
+     * to let editor behave correctly especially for those mouse drag/drop behaviors
+     */
+    zoomScale: number;
+
     /**
-     * A transformer function. It transform the size changes according to current situation.
-     * A typical scenario to use this function is when editor is located under a scaled container, so we need to
-     * calculate the scaled size change according to current zoom rate.
+     * @deprecated Use zoomScale instead
      */
     sizeTransformer: SizeTransformer;
+
+    /**
+     * Retrieves the Visible Viewport of the editor.
+     */
+    getVisibleViewport: () => Rect | null;
+
+    /**
+     * Color of the border of a selectedImage. Default color: '#DB626C'
+     */
+    imageSelectionBorderColor?: string;
+
+    /**
+     * Dark model handler for the editor, used for variable-based solution.
+     * If keep it null, editor will still use original dataset-based dark mode solution.
+     */
+    darkColorHandler: DarkColorHandler;
 }
 
 /**
@@ -56,12 +90,14 @@ export default interface EditorCore extends PluginState {
  * @param callback The editing callback, accepting current selection start and end position, returns an optional object used as the data field of ContentChangedEvent.
  * @param changeSource The ChangeSource string of ContentChangedEvent. @default ChangeSource.Format. Set to null to avoid triggering ContentChangedEvent
  * @param canUndoByBackspace True if this action can be undone when user press Backspace key (aka Auto Complete).
+ * @param additionalData Optional parameter to provide additional data related to the ContentChanged Event.
  */
 export type AddUndoSnapshot = (
     core: EditorCore,
-    callback: (start: NodePosition, end: NodePosition) => any,
-    changeSource: ChangeSource | string,
-    canUndoByBackspace: boolean
+    callback: ((start: NodePosition | null, end: NodePosition | null) => any) | null,
+    changeSource: ChangeSource | CompatibleChangeSource | string | null,
+    canUndoByBackspace: boolean,
+    additionalData?: ContentChangedData
 ) => void;
 
 /**
@@ -86,21 +122,24 @@ export type AttachDomEvent = (
 export type CreatePasteFragment = (
     core: EditorCore,
     clipboardData: ClipboardData,
-    position: NodePosition,
+    position: NodePosition | null,
     pasteAsText: boolean,
-    applyCurrentStyle: boolean
-) => DocumentFragment;
+    applyCurrentStyle: boolean,
+    pasteAsImage: boolean
+) => DocumentFragment | null;
 
 /**
  * Ensure user will type into a container element rather than into the editor content DIV directly
  * @param core The EditorCore object.
  * @param position The position that user is about to type to
  * @param keyboardEvent Optional keyboard event object
+ * @param deprecated Deprecated parameter, not used
  */
 export type EnsureTypeInContainer = (
     core: EditorCore,
     position: NodePosition,
-    keyboardEvent?: KeyboardEvent
+    keyboardEvent?: KeyboardEvent,
+    deprecated?: boolean
 ) => void;
 
 /**
@@ -115,7 +154,10 @@ export type Focus = (core: EditorCore) => void;
  * @param mode specify what kind of HTML content to retrieve
  * @returns HTML string representing current editor content
  */
-export type GetContent = (core: EditorCore, mode: GetContentMode) => string;
+export type GetContent = (
+    core: EditorCore,
+    mode: GetContentMode | CompatibleGetContentMode
+) => string;
 
 /**
  * Get current or cached selection range
@@ -123,7 +165,7 @@ export type GetContent = (core: EditorCore, mode: GetContentMode) => string;
  * @param tryGetFromCache Set to true to retrieve the selection range from cache if editor doesn't own the focus now
  * @returns A Range object of the selection range
  */
-export type GetSelectionRange = (core: EditorCore, tryGetFromCache: boolean) => Range;
+export type GetSelectionRange = (core: EditorCore, tryGetFromCache: boolean) => Range | null;
 
 /**
  * Get current selection range
@@ -137,7 +179,10 @@ export type GetSelectionRangeEx = (core: EditorCore) => SelectionRangeEx;
  * @param core The EditorCore objects
  * @param node The node to get style from
  */
-export type GetStyleBasedFormatState = (core: EditorCore, node: Node) => StyleBasedFormatState;
+export type GetStyleBasedFormatState = (
+    core: EditorCore,
+    node: Node | null
+) => StyleBasedFormatState;
 
 /**
  * Get the pendable format such as underline and bold
@@ -162,7 +207,7 @@ export type HasFocus = (core: EditorCore) => boolean;
  * @param core The EditorCore object. No op if null.
  * @param option An insert option object to specify how to insert the node
  */
-export type InsertNode = (core: EditorCore, node: Node, option: InsertOption) => boolean;
+export type InsertNode = (core: EditorCore, node: Node, option: InsertOption | null) => boolean;
 
 /**
  * Restore an undo snapshot into editor
@@ -170,6 +215,23 @@ export type InsertNode = (core: EditorCore, node: Node, option: InsertOption) =>
  * @param step Steps to move, can be 0, positive or negative
  */
 export type RestoreUndoSnapshot = (core: EditorCore, step: number) => void;
+
+/**
+ * Select content according to the given information.
+ * There are a bunch of allowed combination of parameters. See IEditor.select for more details
+ * @param core The editor core object
+ * @param arg1 A DOM Range, or SelectionRangeEx, or NodePosition, or Node, or Selection Path
+ * @param arg2 (optional) A NodePosition, or an offset number, or a PositionType, or a TableSelection, or null
+ * @param arg3 (optional) A Node
+ * @param arg4 (optional) An offset number, or a PositionType
+ */
+export type Select = (
+    core: EditorCore,
+    arg1: Range | SelectionRangeEx | NodePosition | Node | SelectionPath | null,
+    arg2?: NodePosition | number | PositionType | TableSelection | null,
+    arg3?: Node,
+    arg4?: number | PositionType
+) => boolean;
 
 /**
  * Change the editor selection to the given range
@@ -191,7 +253,8 @@ export type SelectRange = (core: EditorCore, range: Range, skipSameRange?: boole
 export type SetContent = (
     core: EditorCore,
     content: string,
-    triggerContentChangedEvent: boolean
+    triggerContentChangedEvent: boolean,
+    metadata?: ContentMetadata
 ) => void;
 
 /**
@@ -208,13 +271,18 @@ export type SwitchShadowEdit = (core: EditorCore, isOn: boolean) => void;
  * @param includeSelf True to transform the root node as well, otherwise false
  * @param callback The callback function to invoke before do color transformation
  * @param direction To specify the transform direction, light to dark, or dark to light
+ * @param forceTransform By default this function will only work when editor core is in dark mode.
+ * Pass true to this value to force do color transformation even editor core is in light mode
+ * @param fromDarkModel Whether the given content is already in dark mode
  */
 export type TransformColor = (
     core: EditorCore,
-    rootNode: Node,
+    rootNode: Node | null,
     includeSelf: boolean,
-    callback: () => void,
-    direction: ColorTransformDirection
+    callback: (() => void) | null,
+    direction: ColorTransformDirection | CompatibleColorTransformDirection,
+    forceTransform?: boolean,
+    fromDarkMode?: boolean
 ) => void;
 
 /**
@@ -235,9 +303,20 @@ export type TriggerEvent = (core: EditorCore, pluginEvent: PluginEvent, broadcas
  */
 export type SelectTable = (
     core: EditorCore,
-    table: HTMLTableElement,
+    table: HTMLTableElement | null,
     coordinates?: TableSelection
-) => TableSelectionRange;
+) => TableSelectionRange | null;
+
+/**
+ * Select a table and save data of the selected range
+ * @param core The EditorCore object
+ * @param image image to select
+ * @returns true if successful
+ */
+export type SelectImage = (
+    core: EditorCore,
+    image: HTMLImageElement | null
+) => ImageSelectionRange | null;
 
 /**
  * The interface for the map of core API.
@@ -279,6 +358,7 @@ export interface CoreApiMap {
      * @param core The EditorCore object.
      * @param position The position that user is about to type to
      * @param keyboardEvent Optional keyboard event object
+     * @param deprecated Deprecated parameter, not used
      */
     ensureTypeInContainer: EnsureTypeInContainer;
 
@@ -349,6 +429,17 @@ export interface CoreApiMap {
     restoreUndoSnapshot: RestoreUndoSnapshot;
 
     /**
+     * Select content according to the given information.
+     * There are a bunch of allowed combination of parameters. See IEditor.select for more details
+     * @param core The editor core object
+     * @param arg1 A DOM Range, or SelectionRangeEx, or NodePosition, or Node, or Selection Path
+     * @param arg2 (optional) A NodePosition, or an offset number, or a PositionType, or a TableSelection, or null
+     * @param arg3 (optional) A Node
+     * @param arg4 (optional) An offset number, or a PositionType
+     */
+    select: Select;
+
+    /**
      * Change the editor selection to the given range
      * @param core The EditorCore object
      * @param range The range to select
@@ -381,6 +472,9 @@ export interface CoreApiMap {
      * @param includeSelf True to transform the root node as well, otherwise false
      * @param callback The callback function to invoke before do color transformation
      * @param direction To specify the transform direction, light to dark, or dark to light
+     * @param forceTransform By default this function will only work when editor core is in dark mode.
+     * Pass true to this value to force do color transformation even editor core is in light mode
+     * @param fromDarkModel Whether the given content is already in dark mode
      */
     transformColor: TransformColor;
 
@@ -402,4 +496,13 @@ export interface CoreApiMap {
      * @returns true if successful
      */
     selectTable: SelectTable;
+
+    /**
+     * Select a image and save data of the selected range
+     * @param core The EditorCore object
+     * @param image image to select
+     * @param imageId the id of the image element
+     * @returns true if successful
+     */
+    selectImage: SelectImage;
 }

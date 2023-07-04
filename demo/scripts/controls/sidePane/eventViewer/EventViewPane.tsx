@@ -1,12 +1,13 @@
 import * as React from 'react';
-import { getTagOfNode, HtmlSanitizer, readFile, safeInstanceOf } from 'roosterjs-editor-dom';
+import { EntityOperation, PluginEvent, PluginEventType } from 'roosterjs-editor-types';
 import { SidePaneElementProps } from '../SidePaneElement';
 import {
-    EntityOperation,
-    PendableFormatState,
-    PluginEvent,
-    PluginEventType,
-} from 'roosterjs-editor-types';
+    getObjectKeys,
+    getTagOfNode,
+    HtmlSanitizer,
+    readFile,
+    safeInstanceOf,
+} from 'roosterjs-editor-dom';
 
 const styles = require('./EventViewPane.scss');
 
@@ -43,6 +44,9 @@ const EventTypeMap: { [key in PluginEventType]: string } = {
     [PluginEventType.LeavingShadowEdit]: 'LeavingShadowEdit',
     [PluginEventType.EditImage]: 'EditImage',
     [PluginEventType.BeforeSetContent]: 'BeforeSetContent',
+    [PluginEventType.ZoomChanged]: 'ZoomChanged',
+    [PluginEventType.SelectionChanged]: 'SelectionChanged',
+    [PluginEventType.BeforeKeyboardEditing]: 'BeforeKeyboardEditing',
 };
 
 const EntityOperationMap: { [key in EntityOperation]: string } = {
@@ -57,6 +61,7 @@ const EntityOperationMap: { [key in EntityOperation]: string } = {
     [EntityOperation.RemoveFromEnd]: 'RemoveFromEnd',
     [EntityOperation.RemoveFromStart]: 'RemoveFromStart',
     [EntityOperation.ReplaceTemporaryContent]: 'ReplaceTemporaryContent',
+    [EntityOperation.UpdateEntityState]: 'UpdateEntityState',
 };
 
 export default class EventViewPane extends React.Component<
@@ -197,7 +202,7 @@ export default class EventViewPane extends React.Component<
                                 ? JSON.stringify(event.clipboardData.linkPreview)
                                 : ''
                         )}
-                        {Object.keys(event.clipboardData.customValues).map(contentType =>
+                        {getObjectKeys(event.clipboardData.customValues).map(contentType =>
                             this.renderPasteContent(
                                 contentType,
                                 event.clipboardData.customValues[contentType]
@@ -207,7 +212,7 @@ export default class EventViewPane extends React.Component<
                 );
             case PluginEventType.PendingFormatStateChanged:
                 const formatState = event.formatState;
-                const keys = Object.keys(formatState) as (keyof PendableFormatState)[];
+                const keys = getObjectKeys(formatState);
                 return <span>{keys.map(key => `${key}=${event.formatState[key]}; `)}</span>;
 
             case PluginEventType.EntityOperation:
@@ -231,6 +236,16 @@ export default class EventViewPane extends React.Component<
                         <span>new src={event.newSrc.substr(0, 100)}</span>
                     </>
                 );
+
+            case PluginEventType.ZoomChanged:
+                return (
+                    <span>
+                        Old value={event.oldZoomScale} New value={event.newZoomScale}
+                    </span>
+                );
+
+            case PluginEventType.BeforeKeyboardEditing:
+                return <span>Key code={event.rawEvent.which}</span>;
 
             default:
                 return null;
